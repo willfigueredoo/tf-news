@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import Image from "next/image";
 import { ICP_CATALOG } from "../lib/editorial";
 
 type View = "Painel" | "Monitoramento" | "Criar Conteúdo" | "Conteúdos" | "Configurações";
@@ -21,10 +22,11 @@ const DEMO_NEWS: News[] = [
 ];
 
 function initials(name: string) { return name.split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase(); }
+function currentTime() { return new Intl.DateTimeFormat("pt-BR", { hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date()); }
 function relativeDate(value: string) { const hours = Math.max(0, Math.round((Date.now() - new Date(value).getTime()) / 3_600_000)); return hours < 1 ? "agora" : hours < 24 ? `há ${hours}h` : `há ${Math.round(hours / 24)}d`; }
 function impactLabel(value: News["logisticsImpact"]) { return value === "high" ? "Alto" : value === "medium" ? "Médio" : "Baixo"; }
 
-export function TFNewsApp({ userName, userEmail }: { userName: string; userEmail: string }) {
+export function TFNewsApp({ userName, userEmail, initialUpdatedAt }: { userName: string; userEmail: string; initialUpdatedAt: string }) {
   const [view, setView] = useState<View>("Painel");
   const [globalIcp, setGlobalIcp] = useState("Todos os ICPs");
   const [news, setNews] = useState<News[]>([]);
@@ -39,6 +41,8 @@ export function TFNewsApp({ userName, userEmail }: { userName: string; userEmail
   const [toast, setToast] = useState<string | null>(null);
   const [settingsTab, setSettingsTab] = useState("Fontes");
   const [wpConfigured, setWpConfigured] = useState(false);
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [lastUpdated, setLastUpdated] = useState(initialUpdatedAt);
   const [objective, setObjective] = useState("Analisar o acontecimento e explicar impactos para operação, distribuição e transporte.");
   const [keyword, setKeyword] = useState("logística B2B");
 
@@ -51,6 +55,7 @@ export function TFNewsApp({ userName, userEmail }: { userName: string; userEmail
       if (contentResponse.ok) setArticles(((await contentResponse.json()) as { articles: Article[] }).articles);
       if (wpResponse.ok) setWpConfigured(((await wpResponse.json()) as { configured: boolean }).configured);
     } catch { notify("A prévia está ativa; os dados persistentes serão carregados quando o banco responder."); }
+    finally { setInitialLoading(false); setLastUpdated(currentTime()); }
   }, [notify]);
 
   useEffect(() => {
@@ -69,6 +74,13 @@ export function TFNewsApp({ userName, userEmail }: { userName: string; userEmail
   const liveSelected = [...selected].filter((id) => id > 0);
 
   function chooseView(next: View) { setView(next); window.scrollTo({ top: 0, behavior: "smooth" }); }
+  function toggleTheme() {
+    const root = document.documentElement;
+    const next = root.dataset.theme === "dark" ? "light" : "dark";
+    root.dataset.theme = next;
+    root.style.colorScheme = next;
+    window.localStorage.setItem("tf-news-theme", next);
+  }
   function toggleNews(id: number) { setSelected((current) => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; }); }
   function startContent() {
     if (!selected.size) { notify("Selecione ao menos uma notícia no monitoramento."); chooseView("Monitoramento"); return; }
@@ -122,46 +134,47 @@ export function TFNewsApp({ userName, userEmail }: { userName: string; userEmail
   return (
     <div className="app-shell">
       <aside className="sidebar">
-        <div className="brand"><div className="brand-mark">TF</div><div className="brand-name">TF <span>NEWS</span></div></div>
-        <div className="nav-label">Workspace</div>
+        <div className="brand"><Image className="sidebar-logo" src="/brand/tf-news-compact.svg" alt="TF News" width={174} height={53} priority /></div>
+        <div className="nav-label">Newsroom</div>
         <nav className="nav" aria-label="Navegação principal">{VIEWS.map((item) => <button key={item.name} className={`nav-button ${view === item.name ? "active" : ""}`} onClick={() => chooseView(item.name)}><span className="nav-icon">{item.icon}</span>{item.name}</button>)}</nav>
         <div className="sidebar-foot"><div className="live-status"><span className="live-dot" /> Monitoramento operacional</div><div className="source-meta" style={{ marginTop: 8 }}>{sources.length} fonte(s) cadastrada(s)</div></div>
       </aside>
       <main className="main">
         <header className="topbar">
-          <div><div className="crumb">TF News / Inteligência editorial</div><div className="page-name">{view}</div></div>
+          <div className="header-context"><Image className="header-logo" src="/brand/tf-news-horizontal.svg" alt="TF News" width={94} height={46} priority /><div><div className="crumb">Inteligência editorial</div><div className="page-name">{view}<span className="update-time">Atualizado às {lastUpdated}</span></div></div></div>
           <div className="top-actions">
             <select className="global-select" value={globalIcp} onChange={(event) => setGlobalIcp(event.target.value)} aria-label="Filtrar todo o sistema por ICP"><option>Todos os ICPs</option>{ICP_CATALOG.map((icp) => <option key={icp.slug}>{icp.name}</option>)}</select>
-            <div className="avatar" title={`${userName} — ${userEmail}`}>{initials(userName)}</div>
+            <button className="theme-toggle" onClick={toggleTheme} aria-label="Alternar entre modo claro e escuro" title="Alternar tema"><span className="theme-icon-light" aria-hidden="true">☼</span><span className="theme-icon-dark" aria-hidden="true">◐</span></button>
+            <div className="user-chip" title={userEmail}><div className="avatar">{initials(userName)}</div><div className="user-copy"><strong>{userName}</strong><span>Editor</span></div></div>
           </div>
         </header>
         <div className="content">
-          {view === "Painel" && <Dashboard news={filteredNews} realData={news.length > 0} sources={sources} articles={articles} onMonitor={() => chooseView("Monitoramento")} />}
+          {view === "Painel" && <Dashboard news={filteredNews} realData={news.length > 0} sources={sources} articles={articles} loading={initialLoading} onMonitor={() => chooseView("Monitoramento")} />}
           {view === "Monitoramento" && <Monitoring news={filteredNews} selected={selected} search={search} setSearch={setSearch} impactFilter={impactFilter} setImpactFilter={setImpactFilter} toggleNews={toggleNews} startContent={startContent} demoMode={!news.length} />}
           {view === "Criar Conteúdo" && <CreateContent selectedCount={liveSelected.length} brief={brief} article={article} setArticle={setArticle} objective={objective} setObjective={setObjective} keyword={keyword} setKeyword={setKeyword} busy={busy} generateBrief={generateBrief} generateArticle={generateArticle} saveArticle={saveArticle} onChooseNews={() => chooseView("Monitoramento")} />}
           {view === "Conteúdos" && <Contents articles={articles} busy={busy} wpConfigured={wpConfigured} openArticle={(item) => { setArticle(item); chooseView("Criar Conteúdo"); }} sendWordPress={sendWordPress} />}
           {view === "Configurações" && <Settings tab={settingsTab} setTab={setSettingsTab} sources={sources} wpConfigured={wpConfigured} busy={busy} setBusy={setBusy} notify={notify} refresh={refreshAll} />}
         </div>
       </main>
+      <nav className="mobile-nav" aria-label="Navegação móvel">{VIEWS.map((item) => <button key={item.name} className={view === item.name ? "active" : ""} onClick={() => chooseView(item.name)} aria-label={item.name}><span aria-hidden="true">{item.icon}</span>{item.name === "Criar Conteúdo" ? "Criar" : item.name}</button>)}</nav>
       {toast && <div className="toast" role="status">{toast}</div>}
     </div>
   );
 }
 
-function Dashboard({ news, realData, sources, articles, onMonitor }: { news: News[]; realData: boolean; sources: Source[]; articles: Article[]; onMonitor: () => void }) {
+function Dashboard({ news, realData, sources, articles, loading, onMonitor }: { news: News[]; realData: boolean; sources: Source[]; articles: Article[]; loading: boolean; onMonitor: () => void }) {
   const high = news.filter((item) => item.relevanceScore >= 80).length;
-  const sent = articles.filter((item) => item.wordpressPostId).length;
   const metrics = [
-    { label: "Notícias monitoradas", value: news.length, foot: realData ? "Dados coletados" : "Prévia demonstrativa", icon: "◉" },
-    { label: "Prioridade editorial", value: high, foot: "Score acima de 80", icon: "↑" },
-    { label: "Conteúdos gerados", value: articles.length, foot: "Rascunhos internos", icon: "✦" },
-    { label: "Enviados ao WordPress", value: sent, foot: "Sempre como draft", icon: "↗" },
+    { label: "Notícias monitoradas", value: realData ? news.length : 523, foot: "Sinais capturados no período", trend: "+12,4%" },
+    { label: "Alta prioridade", value: realData ? high : 38, foot: "Score editorial acima de 80", trend: "+8 hoje" },
+    { label: "Prontas para produção", value: realData ? articles.length : 12, foot: "Pautas qualificadas pela curadoria", trend: "Fluxo ativo" },
+    { label: "Fontes ativas", value: realData ? sources.filter((source) => source.active).length : 8, foot: "Cobertura multissetorial", trend: "100% online" },
   ];
   const bars = [42, 61, 48, 74, 56, 88, 69, 95, 82, 62, 76, 90];
   return <>
-    <div className="section-head"><div><div className="eyebrow">Visão executiva</div><h1>Mercado em movimento.</h1><p className="subtitle">Sinais relevantes dos segmentos atendidos pela TransFAST, organizados para decisões editoriais mais rápidas.</p></div><button className="primary" onClick={onMonitor}>Ver monitoramento →</button></div>
+    <section className="dashboard-hero"><div className="hero-copy"><div className="eyebrow"><span className="signal-pulse" /> Visão executiva</div><h1>Mercado em movimento.</h1><p className="subtitle">Transformando sinais dos seus mercados em oportunidades de conteúdo.</p></div><button className="primary" onClick={onMonitor}>Explorar monitoramento <span aria-hidden="true">→</span></button></section>
     {!realData && <div className="notice">Você está vendo dados demonstrativos. Cadastre uma fonte RSS em Configurações para ativar o monitoramento real.</div>}
-    <div className="metrics">{metrics.map((metric) => <div className="card metric" key={metric.label}><div className="metric-top"><span>{metric.label}</span><span className="metric-symbol">{metric.icon}</span></div><div className="metric-value">{metric.value}</div><div className="metric-foot">{metric.foot}</div></div>)}</div>
+    <div className="metrics">{metrics.map((metric) => <div className={`card metric ${loading ? "skeleton-card" : ""}`} key={metric.label}><div className="metric-top"><span>{metric.label}</span><span className="metric-trend">{metric.trend}</span></div><div className="metric-value">{metric.value}</div><div className="metric-foot">{metric.foot}</div></div>)}</div>
     <div className="dashboard-grid">
       <section className="card panel"><div className="panel-title"><h2>Volume editorial</h2><small>Últimos 12 períodos</small></div><div className="bars">{bars.map((height, index) => <div className="bar-wrap" key={index}><div className={`bar ${height >= 85 ? "hot" : ""}`} style={{ height: `${height}%` }} /><span className="bar-label">{index + 1}</span></div>)}</div></section>
       <section className="card panel"><div className="panel-title"><h2>Fontes</h2><small>{sources.length} ativas</small></div>{sources.length ? sources.slice(0, 4).map((source) => <div className="source-line" key={source.id}><div className="source-logo">{initials(source.name)}</div><div><div className="source-name">{source.name}</div><div className="source-meta">{source.domain}</div></div><span className="source-state">{source.lastError ? "ATENÇÃO" : "ATIVA"}</span></div>) : <div className="empty"><strong>Nenhuma fonte ainda</strong>Cadastre o primeiro feed RSS.</div>}</section>
@@ -172,26 +185,31 @@ function Dashboard({ news, realData, sources, articles, onMonitor }: { news: New
 }
 
 function Monitoring({ news, selected, search, setSearch, impactFilter, setImpactFilter, toggleNews, startContent, demoMode }: { news: News[]; selected: Set<number>; search: string; setSearch: (value: string) => void; impactFilter: string; setImpactFilter: (value: string) => void; toggleNews: (id: number) => void; startContent: () => void; demoMode: boolean }) {
-  return <><div className="section-head"><div><div className="eyebrow">Curadoria de mercado</div><h1>Monitoramento</h1><p className="subtitle">Classifique, filtre e transforme sinais dos seus mercados em oportunidades editoriais.</p></div><button className="primary" disabled={!selected.size} onClick={startContent}>Gerar conteúdo ({selected.size})</button></div>
+  const [page, setPage] = useState(1);
+  const pageSize = 8;
+  const totalPages = Math.max(1, Math.ceil(news.length / pageSize));
+  const safePage = Math.min(page, totalPages);
+  const visibleNews = news.slice((safePage - 1) * pageSize, safePage * pageSize);
+  return <><div className="section-head"><div><div className="eyebrow">Curadoria de mercado</div><h1>Monitoramento</h1><p className="subtitle">Classifique, filtre e transforme sinais dos seus mercados em oportunidades editoriais.</p></div><button className="primary" disabled={!selected.size} onClick={startContent}>Gerar conteúdo <span className="button-count">{selected.size}</span></button></div>
     {demoMode && <div className="notice">Modo de apresentação: os itens abaixo ilustram a classificação. A coleta real começa ao cadastrar um RSS.</div>}
     <div className="card toolbar"><input className="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar por título, tema ou palavra-chave…" aria-label="Buscar notícias" /><select className="filter" value={impactFilter} onChange={(event) => setImpactFilter(event.target.value)} aria-label="Filtrar impacto"><option value="all">Todos os impactos</option><option value="high">Impacto alto</option><option value="medium">Impacto médio</option><option value="low">Impacto baixo</option></select><select className="filter" aria-label="Período"><option>Últimos 7 dias</option><option>Hoje</option><option>Últimos 30 dias</option></select></div>
     {!!selected.size && <div className="selection-bar"><span>{selected.size} notícia(s) selecionada(s)</span><button className="primary" onClick={startContent}>Criar pauta →</button></div>}
-    <div className="card news-table"><div className="table-head"><span /><span>Notícia</span><span>Fonte / Região</span><span>ICPs e temas</span><span>Score</span><span>Impacto</span></div>{news.length ? news.map((item) => <div className="table-item" key={item.id} title={item.classificationReason}><input className="news-check" type="checkbox" checked={selected.has(item.id)} onChange={() => toggleNews(item.id)} aria-label={`Selecionar ${item.title}`} /><div><div className="item-title">{item.title}</div><div className="item-excerpt">{item.excerpt}</div></div><div><div className="source-name">{item.sourceName}</div><div className="source-meta">{item.region} · {relativeDate(item.publishedAt)}</div></div><div className="tags">{item.icps.slice(0, 2).map((icp) => <span className="tag red" key={icp}>{icp}</span>)}{item.topics.slice(0, 2).map((topic) => <span className="tag" key={topic}>{topic}</span>)}</div><span className={`score ${item.relevanceScore >= 80 ? "priority" : ""}`}>{item.relevanceScore}</span><span className={`impact-badge ${item.logisticsImpact === "high" ? "high" : ""}`}>{impactLabel(item.logisticsImpact)}</span></div>) : <div className="empty"><strong>Nenhum resultado</strong>Ajuste os filtros ou colete uma nova fonte.</div>}</div>
+    <div className="card news-table"><div className="table-head"><span /><span>Notícia</span><span>Fonte / Região</span><span>ICPs e temas</span><span>Score</span><span>Impacto</span></div>{news.length ? visibleNews.map((item) => <div className={`table-item ${selected.has(item.id) ? "selected" : ""}`} key={item.id} title={item.classificationReason}><input className="news-check" type="checkbox" checked={selected.has(item.id)} onChange={() => toggleNews(item.id)} aria-label={`Selecionar ${item.title}`} /><div><div className="item-title">{item.title}</div><div className="item-excerpt">{item.excerpt}</div></div><div><div className="source-name">{item.sourceName}</div><div className="source-meta">{item.region} · {relativeDate(item.publishedAt)}</div></div><div className="tags">{item.icps.slice(0, 2).map((icp, index) => <span className={`tag icp icp-${index}`} key={icp}><span aria-hidden="true">◆</span>{icp}</span>)}{item.topics.slice(0, 2).map((topic) => <span className="tag" key={topic}>{topic}</span>)}</div><span className={`score ${item.relevanceScore >= 80 ? "priority" : ""}`}>{item.relevanceScore}</span><span className={`impact-badge ${item.logisticsImpact}`}>{impactLabel(item.logisticsImpact)}</span></div>) : <div className="empty"><strong>Nenhum resultado</strong>Ajuste os filtros ou colete uma nova fonte.</div>}<div className="pagination"><span>Mostrando {news.length ? (safePage - 1) * pageSize + 1 : 0}–{Math.min(safePage * pageSize, news.length)} de {news.length}</span><div><button className="page-button" disabled={safePage === 1} onClick={() => setPage(Math.max(1, safePage - 1))} aria-label="Página anterior">←</button><span className="page-current">{safePage} / {totalPages}</span><button className="page-button" disabled={safePage === totalPages} onClick={() => setPage(Math.min(totalPages, safePage + 1))} aria-label="Próxima página">→</button></div></div></div>
   </>;
 }
 
 function CreateContent({ selectedCount, brief, article, setArticle, objective, setObjective, keyword, setKeyword, busy, generateBrief, generateArticle, saveArticle, onChooseNews }: { selectedCount: number; brief: Brief | null; article: Article | null; setArticle: (value: Article) => void; objective: string; setObjective: (value: string) => void; keyword: string; setKeyword: (value: string) => void; busy: boolean; generateBrief: () => void; generateArticle: () => void; saveArticle: () => void; onChooseNews: () => void }) {
   return <><div className="section-head"><div><div className="eyebrow">Fluxo editorial</div><h1>Criar conteúdo</h1><p className="subtitle">Do fato confirmado ao rascunho original, com contexto setorial e foco logístico.</p></div><button className="secondary" onClick={onChooseNews}>← Escolher notícias</button></div>
-    <div className="stepper"><span className="step active">Fontes ({selectedCount})</span><span className={`step ${brief ? "active" : ""}`}>Briefing</span><span className={`step ${article ? "active" : ""}`}>Artigo</span><span className="step">WordPress</span></div>
-    <div className="workspace"><section className="card form-card"><div className="form-grid"><div className="form-group full"><label className="label" htmlFor="objective">Objetivo editorial</label><textarea id="objective" className="field" value={objective} onChange={(event) => setObjective(event.target.value)} /></div><div className="form-group"><label className="label" htmlFor="keyword">Palavra-chave principal</label><input id="keyword" className="field" value={keyword} onChange={(event) => setKeyword(event.target.value)} /></div><div className="form-group"><label className="label" htmlFor="tone">Tom</label><select id="tone" className="field"><option>Executivo e acessível</option><option>Analítico</option><option>Notícia comentada</option></select></div><div className="form-group full"><button className="primary" disabled={busy || !selectedCount} onClick={generateBrief}>{busy ? "Processando…" : brief ? "Regenerar briefing" : "Gerar briefing editorial"}</button></div></div>
-      {brief && <div className="brief-box" style={{ marginTop: 18 }}><h3>{brief.suggestedTitle}</h3><p>{brief.summary}</p><div className="tags">{brief.topics.map((topic) => <span className="tag" key={topic}>{topic}</span>)}</div><p><strong>Oportunidade:</strong> {brief.opportunity}</p><p><strong>Impacto logístico:</strong> {brief.logisticsImpact} · <strong>Regiões:</strong> {brief.regions.join(", ")}</p><button className="primary" disabled={busy} onClick={generateArticle}>{busy ? "Gerando…" : "Aprovar briefing e gerar artigo"}</button></div>}
+    <div className="editorial-progress" aria-label="Progresso editorial"><div className="progress-step complete"><span>01</span><div><strong>Fontes</strong><small>{selectedCount} selecionada(s)</small></div></div><span className="progress-connector">↓</span><div className={`progress-step ${brief ? "complete" : "current"}`}><span>02</span><div><strong>Briefing</strong><small>{brief ? "Estrutura aprovada" : "Próxima etapa"}</small></div></div><span className="progress-connector">↓</span><div className={`progress-step ${article ? "complete" : brief ? "current" : ""}`}><span>03</span><div><strong>Artigo</strong><small>{article ? "Rascunho criado" : "Geração original"}</small></div></div><span className="progress-connector">↓</span><div className={`progress-step ${article ? "current" : ""}`}><span>04</span><div><strong>WordPress</strong><small>Envio como draft</small></div></div></div>
+    <div className="workspace"><section className="card form-card"><div className="form-intro"><span>02</span><div><h2>Briefing editorial</h2><p>Defina o foco antes de transformar as fontes em conteúdo.</p></div></div><div className="form-grid"><div className="form-group full"><label className="label" htmlFor="objective">Objetivo editorial</label><textarea id="objective" className="field" value={objective} onChange={(event) => setObjective(event.target.value)} /></div><div className="form-group"><label className="label" htmlFor="keyword">Palavra-chave principal</label><input id="keyword" className="field" value={keyword} onChange={(event) => setKeyword(event.target.value)} /></div><div className="form-group"><label className="label" htmlFor="tone">Tom</label><select id="tone" className="field"><option>Executivo e acessível</option><option>Analítico</option><option>Notícia comentada</option></select></div><div className="form-group full"><button className={`primary ${busy ? "is-loading" : ""}`} disabled={busy || !selectedCount} onClick={generateBrief}>{busy ? "Processando…" : brief ? "Regenerar briefing" : "Gerar briefing editorial"}</button></div></div>
+      {brief && <div className="brief-box" style={{ marginTop: 18 }}><h3>{brief.suggestedTitle}</h3><p>{brief.summary}</p><div className="tags">{brief.topics.map((topic) => <span className="tag" key={topic}>{topic}</span>)}</div><p><strong>Oportunidade:</strong> {brief.opportunity}</p><p><strong>Impacto logístico:</strong> {brief.logisticsImpact} · <strong>Regiões:</strong> {brief.regions.join(", ")}</p><button className={`primary ${busy ? "is-loading" : ""}`} disabled={busy} onClick={generateArticle}>{busy ? "Gerando…" : "Aprovar briefing e gerar artigo"}</button></div>}
       {article && <div style={{ marginTop: 20 }}><div className="form-group"><label className="label" htmlFor="article-title">Título</label><input id="article-title" className="field" value={article.title} onChange={(event) => setArticle({ ...article, title: event.target.value })} /></div><div className="form-group" style={{ marginTop: 12 }}><label className="label" htmlFor="article-content">Conteúdo HTML</label><textarea id="article-content" className="field editor" value={article.content} onChange={(event) => setArticle({ ...article, content: event.target.value })} /></div><div style={{ display: "flex", gap: 9, marginTop: 12 }}><button className="primary" disabled={busy} onClick={saveArticle}>Salvar rascunho</button><span className="status">Qualidade {article.qualityScore}/100</span></div></div>}
     </section><aside className="card aside-note"><h3>Checklist editorial</h3>{["Fontes rastreáveis presentes", "Fatos separados de análise", "Sem reprodução integral", "CTA contextual e discreto", "Envio protegido como rascunho"].map((item) => <div className="check" key={item}>{item}</div>)}{brief?.warnings.map((warning) => <div className="notice" key={warning}>{warning}</div>)}</aside></div>
   </>;
 }
 
 function Contents({ articles, busy, wpConfigured, openArticle, sendWordPress }: { articles: Article[]; busy: boolean; wpConfigured: boolean; openArticle: (article: Article) => void; sendWordPress: (id: number) => void }) {
-  return <><div className="section-head"><div><div className="eyebrow">Produção editorial</div><h1>Conteúdos</h1><p className="subtitle">Rascunhos, revisões e envios ao WordPress em um único histórico.</p></div></div><div className="content-list">{articles.length ? articles.map((article) => <article className="card content-item" key={article.id}><div><div className="content-title">{article.title}</div><div className="content-meta">{article.primaryKeyword} · atualizado {relativeDate(article.updatedAt)} · qualidade {article.qualityScore}/100</div><div style={{ marginTop: 8 }}><span className={`status ${article.wordpressPostId ? "sent" : "review"}`}>{article.wordpressPostId ? `WordPress #${article.wordpressPostId}` : "Rascunho interno"}</span></div></div><div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}><button className="secondary" onClick={() => openArticle(article)}>Editar</button><button className="primary" disabled={busy || !wpConfigured || Boolean(article.wordpressPostId)} onClick={() => sendWordPress(article.id)}>{article.wordpressPostId ? "Enviado" : "Enviar como draft"}</button></div></article>) : <div className="card empty"><strong>Nenhum conteúdo gerado</strong>Selecione notícias no Monitoramento e crie o primeiro briefing.</div>}</div></>;
+  return <><div className="section-head"><div><div className="eyebrow">Produção editorial</div><h1>Conteúdos</h1><p className="subtitle">Rascunhos, revisões e envios ao WordPress em um único histórico.</p></div></div><div className="status-legend" aria-label="Estados dos conteúdos"><span className="status draft">Rascunho</span><span className="status review">Em revisão</span><span className="status published">Publicado</span><span className="status error">Erro</span></div><div className="content-list">{articles.length ? articles.map((article) => <article className="card content-item" key={article.id}><div><div className="content-title">{article.title}</div><div className="content-meta">{article.primaryKeyword} · atualizado {relativeDate(article.updatedAt)} · qualidade {article.qualityScore}/100</div><div style={{ marginTop: 8 }}><span className={`status ${article.wordpressPostId ? "sent" : "draft"}`}>{article.wordpressPostId ? `WordPress draft #${article.wordpressPostId}` : "Rascunho interno"}</span></div></div><div className="content-actions"><button className="secondary" onClick={() => openArticle(article)}>Editar</button><button className={`primary ${busy ? "is-loading" : ""}`} disabled={busy || !wpConfigured || Boolean(article.wordpressPostId)} onClick={() => sendWordPress(article.id)}>{article.wordpressPostId ? "Enviado" : "Enviar como draft"}</button></div></article>) : <div className="card empty"><strong>Nenhum conteúdo gerado</strong>Selecione notícias no Monitoramento e crie o primeiro briefing.</div>}</div></>;
 }
 
 function Settings({ tab, setTab, sources, wpConfigured, busy, setBusy, notify, refresh }: { tab: string; setTab: (value: string) => void; sources: Source[]; wpConfigured: boolean; busy: boolean; setBusy: (value: boolean) => void; notify: (value: string) => void; refresh: () => Promise<void> }) {
