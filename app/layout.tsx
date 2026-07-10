@@ -29,9 +29,14 @@ export const metadata: Metadata = {
     description: "Notícias relevantes transformadas em inteligência e conteúdo original.",
   },
   icons: {
-    icon: "/brand/tf-news-icon.svg",
-    shortcut: "/brand/tf-news-icon.svg",
-    apple: "/brand/tf-news-icon.svg",
+    icon: [
+      { url: "/favicon.ico", sizes: "any" },
+      { url: "/favicon.svg", type: "image/svg+xml" },
+      { url: "/android-chrome-192x192.png", sizes: "192x192", type: "image/png" },
+      { url: "/android-chrome-512x512.png", sizes: "512x512", type: "image/png" },
+    ],
+    shortcut: "/favicon.ico",
+    apple: [{ url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" }],
   },
 };
 

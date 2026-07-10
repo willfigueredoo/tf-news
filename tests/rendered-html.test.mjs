@@ -15,7 +15,9 @@ test("mantém a experiência principal e remove o starter", async () => {
   assert.match(app, /Criar Conteúdo/);
   assert.match(app, /Configurações/);
   assert.match(layout, /TF News — Inteligência editorial/);
-  assert.match(app, /tf-news-compact\.svg/);
+  assert.match(app, /tf-news-icon\.png/);
+  assert.match(app, /tf-news-horizontal\.png/);
+  assert.match(layout, /favicon\.ico/);
   assert.match(layout, /tf-news-theme/);
   assert.match(css, /#e30613/i);
   assert.match(css, /html\[data-theme="dark"\]/);

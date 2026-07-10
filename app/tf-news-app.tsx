@@ -1,5 +1,5 @@
 "use client";
-/* SVG brand assets intentionally bypass image optimization to preserve vector fidelity. */
+/* Official TF News brand assets load directly to preserve their approved rendering. */
 /* eslint-disable @next/next/no-img-element */
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
@@ -135,14 +135,14 @@ export function TFNewsApp({ userName, userEmail, initialUpdatedAt }: { userName:
   return (
     <div className="app-shell">
       <aside className="sidebar">
-        <div className="brand"><img className="sidebar-logo" src="/brand/tf-news-compact.svg" alt="TF News" width="174" height="53" loading="eager" decoding="async" /></div>
+        <div className="brand"><img className="sidebar-logo" src="/brand/tf-news-icon.png" alt="TF News" width="56" height="56" loading="eager" decoding="async" /></div>
         <div className="nav-label">Newsroom</div>
         <nav className="nav" aria-label="Navegação principal">{VIEWS.map((item) => <button key={item.name} className={`nav-button ${view === item.name ? "active" : ""}`} onClick={() => chooseView(item.name)}><span className="nav-icon">{item.icon}</span>{item.name}</button>)}</nav>
         <div className="sidebar-foot"><div className="live-status"><span className="live-dot" /> Monitoramento operacional</div><div className="source-meta" style={{ marginTop: 8 }}>{sources.length} fonte(s) cadastrada(s)</div></div>
       </aside>
       <main className="main">
         <header className="topbar">
-          <div className="header-context"><img className="header-logo" src="/brand/tf-news-horizontal.svg" alt="TF News" width="94" height="46" loading="eager" decoding="async" /><div><div className="crumb">Inteligência editorial</div><div className="page-name">{view}<span className="update-time">Atualizado às {lastUpdated}</span></div></div></div>
+          <div className="header-context"><img className="header-logo" src="/brand/tf-news-horizontal.png" alt="TF News" width="126" height="63" loading="eager" decoding="async" /><div><div className="crumb">Inteligência editorial</div><div className="page-name">{view}<span className="update-time">Atualizado às {lastUpdated}</span></div></div></div>
           <div className="top-actions">
             <select className="global-select" value={globalIcp} onChange={(event) => setGlobalIcp(event.target.value)} aria-label="Filtrar todo o sistema por ICP"><option>Todos os ICPs</option>{ICP_CATALOG.map((icp) => <option key={icp.slug}>{icp.name}</option>)}</select>
             <button className="theme-toggle" onClick={toggleTheme} aria-label="Alternar entre modo claro e escuro" title="Alternar tema"><span className="theme-icon-light" aria-hidden="true">☼</span><span className="theme-icon-dark" aria-hidden="true">◐</span></button>
