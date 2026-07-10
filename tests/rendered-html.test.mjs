@@ -3,12 +3,14 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 test("mantém a experiência principal e remove o starter", async () => {
-  const [page, app, layout, css, packageJson] = await Promise.all([
+  const [page, app, layout, css, packageJson, viteConfig, vercelConfig] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/tf-news-app.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
     readFile(new URL("../package.json", import.meta.url), "utf8"),
+    readFile(new URL("../vite.config.ts", import.meta.url), "utf8"),
+    readFile(new URL("../vercel.json", import.meta.url), "utf8"),
   ]);
   assert.match(page, /TFNewsApp/);
   assert.match(app, /Monitoramento/);
@@ -21,5 +23,11 @@ test("mantém a experiência principal e remove o starter", async () => {
   assert.match(layout, /tf-news-theme/);
   assert.match(css, /#e30613/i);
   assert.match(css, /html\[data-theme="dark"\]/);
+  assert.match(packageJson, /build:vercel/);
+  assert.match(viteConfig, /nitro\/vite/);
+  assert.match(viteConfig, /vercel-cloudflare-workers/);
+  assert.match(vercelConfig, /"framework": "nitro"/);
+  assert.match(vercelConfig, /npm run build:vercel/);
+  assert.doesNotMatch(vercelConfig, /\.next/);
   assert.doesNotMatch(`${page}${app}${layout}${packageJson}`, /codex-preview|Your site is taking shape|react-loading-skeleton/);
 });
