@@ -2,5 +2,6 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nitro",
   "buildCommand": "npm run build:vercel",
-  "installCommand": "npm ci"
+  "installCommand": "npm ci",
+  "outputDirectory": null
 }

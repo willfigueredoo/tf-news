@@ -28,6 +28,7 @@ test("mantém a experiência principal e remove o starter", async () => {
   assert.match(viteConfig, /vercel-cloudflare-workers/);
   assert.match(vercelConfig, /"framework": "nitro"/);
   assert.match(vercelConfig, /npm run build:vercel/);
+  assert.match(vercelConfig, /"outputDirectory": null/);
   assert.doesNotMatch(vercelConfig, /\.next/);
   assert.doesNotMatch(`${page}${app}${layout}${packageJson}`, /codex-preview|Your site is taking shape|react-loading-skeleton/);
 });
