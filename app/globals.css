@@ -69,7 +69,7 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { outline: non
 .app-shell { min-height: 100vh; display: grid; grid-template-columns: 254px minmax(0, 1fr); }
 .sidebar { position: sticky; top: 0; height: 100vh; display: flex; flex-direction: column; padding: 30px 18px 22px; background: var(--sidebar); color: #fff; border-right: 1px solid rgba(255,255,255,.045); z-index: 20; }
 .brand { min-height: 66px; display: flex; align-items: center; padding: 0 12px 28px; overflow: hidden; }
-.sidebar-logo { display: block; width: 174px; height: 53px; object-fit: cover; border-radius: 3px; }
+.sidebar-logo { display: block; width: 174px; height: 53px; object-fit: contain; border-radius: 3px; }
 .nav-label { padding: 0 12px 13px; color: #5f5f66; font-size: 9px; line-height: 1; font-weight: 760; letter-spacing: .19em; text-transform: uppercase; }
 .nav { display: grid; gap: 4px; }
 .nav-button { position: relative; width: 100%; min-height: 44px; display: flex; align-items: center; gap: 12px; border: 0; border-radius: 8px; padding: 10px 13px; background: transparent; color: var(--sidebar-text); font-size: 13px; font-weight: 520; text-align: left; transition: color .18s ease, background-color .18s ease, transform .18s ease; }
@@ -86,7 +86,7 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { outline: non
 
 .topbar { position: sticky; top: 0; z-index: 15; min-height: 76px; display: flex; align-items: center; justify-content: space-between; gap: 22px; padding: 10px 34px; background: color-mix(in srgb, var(--surface) 90%, transparent); border-bottom: 1px solid var(--border); backdrop-filter: blur(18px) saturate(140%); }
 .header-context { min-width: 0; display: flex; align-items: center; gap: 16px; }
-.header-logo { width: 94px; height: 46px; object-fit: cover; border-radius: 3px; background: #000; }
+.header-logo { width: 94px; height: 46px; object-fit: contain; border-radius: 3px; }
 .crumb { margin-bottom: 4px; color: var(--muted); font-size: 9px; font-weight: 760; letter-spacing: .16em; text-transform: uppercase; }
 .page-name { display: flex; align-items: center; gap: 10px; color: var(--text-strong); font-size: 14px; font-weight: 680; letter-spacing: -.02em; }
 .update-time { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); font-size: 10px; font-weight: 480; letter-spacing: 0; }
