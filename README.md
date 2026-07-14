@@ -19,7 +19,7 @@ RSS/Atom real → coleta → normalização → deduplicação → classificaç�
 - HTML sanitizado e compatível com WordPress, com H2, H3, listas e fontes rastreáveis;
 - WordPress REST API com teste, categorias, tags e criação exclusiva como `draft`;
 - bloqueio de envio duplicado por banco, lock e recuperação por slug;
-- coleta agendada três vezes por dia com segredo, lock, retries e logs;
+- coleta agendada diariamente no plano Hobby da Vercel, com segredo, lock, retries e logs; o mesmo endpoint suporta três execuções por dia no plano Pro;
 - D1 persistente, Drizzle migrations e adaptador server-only para a Vercel.
 
 ## Desenvolvimento

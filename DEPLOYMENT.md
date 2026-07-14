@@ -15,7 +15,7 @@ Configuração esperada:
 - Output Directory: sem override;
 - Node.js: 24.x.
 
-O `vercel.json` agenda `/api/cron/collect` às 11:00, 17:00 e 23:00 UTC, correspondentes a 08:00, 14:00 e 20:00 em Brasília. O endpoint exige `Authorization: Bearer $CRON_SECRET`, usa lock no D1 e registra a execução. Crons da Vercel só rodam no deployment de produção.
+O `vercel.json` agenda `/api/cron/collect` diariamente às 11:00 UTC, correspondente a 08:00 em Brasília. Essa frequência permite deploy no plano Hobby. Para 08:00, 14:00 e 20:00, use o plano Pro e altere a expressão para `0 11,17,23 * * *`, ou configure um agendador externo autorizado. O endpoint exige `Authorization: Bearer $CRON_SECRET`, usa lock no D1 e registra a execução. Crons da Vercel só rodam no deployment de produção.
 
 ## Variáveis obrigatórias
 
