@@ -37,6 +37,8 @@ test("mantém a experiência principal e remove o starter", async () => {
   assert.match(vercelConfig, /"outputDirectory": null/);
   assert.match(vercelConfig, /api\/cron\/collect/);
   assert.match(vercelOutputScript, /outputConfig\.crons/);
+  assert.doesNotMatch(vercelOutputScript, /outputConfig\.crons\s*=/);
+  assert.match(vercelOutputScript, /evitar duplica/);
   assert.doesNotMatch(vercelConfig, /\.next/);
   assert.doesNotMatch(`${page}${app}${layout}${packageJson}`, /codex-preview|Your site is taking shape|react-loading-skeleton/);
 });
