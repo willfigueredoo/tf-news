@@ -8,12 +8,13 @@
   "scripts": {
     "dev": "vinext dev",
     "build": "vinext build",
-    "build:vercel": "vite build",
+    "build:vercel": "vite build && node scripts/ensure-vercel-output.mjs",
     "start": "vinext start",
     "typecheck": "tsc --noEmit",
     "test": "node --experimental-strip-types --test tests/*.test.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next --ignore-pattern .vercel --ignore-pattern work --ignore-pattern outputs --ignore-pattern .wrangler",
-    "db:generate": "drizzle-kit generate"
+    "db:generate": "drizzle-kit generate",
+    "db:migrate:local": "wrangler d1 migrations apply DB --local --config wrangler.migrations.jsonc"
   },
   "dependencies": {
     "drizzle-orm": "0.45.2",

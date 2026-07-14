@@ -1,4 +1,4 @@
-CREATE TABLE `articles` (
+CREATE TABLE IF NOT EXISTS `articles` (
 	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
 	`brief_id` integer NOT NULL,
 	`title` text NOT NULL,
@@ -19,8 +19,8 @@ CREATE TABLE `articles` (
 	FOREIGN KEY (`brief_id`) REFERENCES `editorial_briefs`(`id`) ON UPDATE no action ON DELETE no action
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `articles_slug_unique` ON `articles` (`slug`);--> statement-breakpoint
-CREATE TABLE `editorial_briefs` (
+CREATE UNIQUE INDEX IF NOT EXISTS `articles_slug_unique` ON `articles` (`slug`);--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS `editorial_briefs` (
 	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
 	`title` text NOT NULL,
 	`selected_icp` text NOT NULL,
@@ -33,7 +33,7 @@ CREATE TABLE `editorial_briefs` (
 	`updated_at` text NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE `job_logs` (
+CREATE TABLE IF NOT EXISTS `job_logs` (
 	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
 	`job_type` text NOT NULL,
 	`status` text NOT NULL,
@@ -44,7 +44,7 @@ CREATE TABLE `job_logs` (
 	`metadata` text
 );
 --> statement-breakpoint
-CREATE TABLE `news_items` (
+CREATE TABLE IF NOT EXISTS `news_items` (
 	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
 	`external_id` text NOT NULL,
 	`title` text NOT NULL,
@@ -68,10 +68,10 @@ CREATE TABLE `news_items` (
 	FOREIGN KEY (`source_id`) REFERENCES `sources`(`id`) ON UPDATE no action ON DELETE no action
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `news_canonical_unique` ON `news_items` (`canonical_url`);--> statement-breakpoint
-CREATE UNIQUE INDEX `news_external_source_unique` ON `news_items` (`external_id`,`source_id`);--> statement-breakpoint
-CREATE UNIQUE INDEX `news_title_hash_unique` ON `news_items` (`title_hash`);--> statement-breakpoint
-CREATE TABLE `sources` (
+CREATE UNIQUE INDEX IF NOT EXISTS `news_canonical_unique` ON `news_items` (`canonical_url`);--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS `news_external_source_unique` ON `news_items` (`external_id`,`source_id`);--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS `news_title_hash_unique` ON `news_items` (`title_hash`);--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS `sources` (
 	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
 	`name` text NOT NULL,
 	`domain` text NOT NULL,
@@ -84,8 +84,8 @@ CREATE TABLE `sources` (
 	`created_at` text NOT NULL
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `sources_feed_url_unique` ON `sources` (`feed_url`);--> statement-breakpoint
-CREATE TABLE `wordpress_publications` (
+CREATE UNIQUE INDEX IF NOT EXISTS `sources_feed_url_unique` ON `sources` (`feed_url`);--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS `wordpress_publications` (
 	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
 	`article_id` integer NOT NULL,
 	`wordpress_post_id` integer NOT NULL,
@@ -95,4 +95,4 @@ CREATE TABLE `wordpress_publications` (
 	FOREIGN KEY (`article_id`) REFERENCES `articles`(`id`) ON UPDATE no action ON DELETE no action
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `wordpress_publications_article_id_unique` ON `wordpress_publications` (`article_id`);
+CREATE UNIQUE INDEX IF NOT EXISTS `wordpress_publications_article_id_unique` ON `wordpress_publications` (`article_id`);

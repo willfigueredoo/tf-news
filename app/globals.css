@@ -192,7 +192,13 @@ h1 { margin: 0; color: var(--text-strong); font-size: clamp(29px, 3vw, 42px); fo
 .news-check:checked::before { transform: scale(1); }
 .news-check:active { transform: scale(.9); }
 .item-title { color: var(--text); font-size: 11px; font-weight: 660; line-height: 1.4; letter-spacing: -.01em; }
+.item-title-link { text-decoration: none; }
+.item-title-link:hover { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
 .item-excerpt { max-width: 630px; margin-top: 5px; color: var(--muted); font-size: 9px; line-height: 1.5; }
+.row-actions { display: flex; gap: 10px; margin-top: 7px; }
+.row-actions button { border: 0; padding: 0; background: transparent; color: var(--muted); font-size: 8px; }
+.row-actions button:hover { color: var(--accent); }
+.compact-select { width: 100%; margin-bottom: 6px; border: 1px solid var(--border); border-radius: 6px; padding: 5px 6px; background: var(--surface); color: var(--text); font-size: 8px; }
 .tags { display: flex; flex-wrap: wrap; gap: 5px; }
 .tag { display: inline-flex; align-items: center; gap: 4px; padding: 4px 7px; border: 1px solid transparent; border-radius: 999px; background: var(--surface-soft); color: var(--muted); font-size: 8px; font-weight: 560; white-space: nowrap; }
 .tag.red { background: var(--accent-soft); color: var(--accent); }
@@ -249,6 +255,8 @@ textarea.field { min-height: 96px; resize: vertical; line-height: 1.55; }
 .content-title { color: var(--text); font-size: 12px; font-weight: 670; letter-spacing: -.015em; }
 .content-meta { margin-top: 6px; color: var(--muted); font-size: 9px; }
 .content-actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+.content-actions a { text-decoration: none; }
+.inline-actions { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
 .status { display: inline-flex; align-items: center; gap: 5px; padding: 5px 8px; border-radius: 999px; font-size: 8px; font-weight: 730; }
 .status::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
 .status.draft { color: var(--muted); background: var(--surface-soft); }
@@ -262,6 +270,10 @@ textarea.field { min-height: 96px; resize: vertical; line-height: 1.55; }
 .settings-tab:hover { color: var(--text); background: var(--surface-soft); transform: translateX(2px); }
 .settings-tab.active { color: var(--text); background: var(--surface-soft); font-weight: 700; }
 .settings-tab.active::after { content: ""; position: absolute; left: 0; top: 11px; bottom: 11px; width: 2px; border-radius: 2px; background: var(--accent); }
+.log-line { display: grid; grid-template-columns: minmax(90px, .5fr) auto minmax(150px, 1fr); align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+.log-line strong { color: var(--text); font-size: 10px; }
+.log-line small, .log-line p { color: var(--muted); font-size: 8px; }
+.log-line p { grid-column: 1 / -1; margin: 0; }
 .empty { padding: 42px 20px; color: var(--muted); font-size: 10px; line-height: 1.55; text-align: center; }
 .empty strong { display: block; margin-bottom: 5px; color: var(--text); font-size: 12px; }
 .toast { position: fixed; right: 24px; bottom: 22px; z-index: 40; max-width: 420px; padding: 12px 15px; border: 1px solid rgba(255,255,255,.07); border-radius: 9px; background: #111; color: #fff; box-shadow: 0 20px 60px rgba(0,0,0,.25); font-size: 10px; line-height: 1.45; animation: toast-in .25s ease both; }

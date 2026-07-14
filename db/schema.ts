@@ -9,8 +9,16 @@ export const sources = sqliteTable("sources", {
   reliabilityScore: integer("reliability_score").notNull().default(75),
   active: integer("active", { mode: "boolean" }).notNull().default(true),
   lastCollectedAt: text("last_collected_at"),
+  lastSuccessAt: text("last_success_at"),
+  lastFailureAt: text("last_failure_at"),
   lastError: text("last_error"),
+  lastStatus: text("last_status").notNull().default("never"),
+  lastDurationMs: integer("last_duration_ms"),
+  lastHttpStatus: integer("last_http_status"),
+  lastItemCount: integer("last_item_count").notNull().default(0),
+  consecutiveFailures: integer("consecutive_failures").notNull().default(0),
   createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at"),
 });
 
 export const newsItems = sqliteTable("news_items", {
@@ -25,6 +33,7 @@ export const newsItems = sqliteTable("news_items", {
   publishedAt: text("published_at").notNull(),
   collectedAt: text("collected_at").notNull(),
   excerpt: text("excerpt").notNull(),
+  contentText: text("content_text").notNull().default(""),
   contentHash: text("content_hash").notNull(),
   titleHash: text("title_hash").notNull(),
   region: text("region").notNull(),
@@ -33,7 +42,11 @@ export const newsItems = sqliteTable("news_items", {
   status: text("status").notNull().default("new"),
   topics: text("topics").notNull(),
   icps: text("icps").notNull(),
+  primaryIcp: text("primary_icp").notNull().default("Mercado e Logística"),
+  secondaryIcps: text("secondary_icps").notNull().default("[]"),
   classificationReason: text("classification_reason").notNull(),
+  classificationMethod: text("classification_method").notNull().default("deterministic"),
+  manuallyEditedAt: text("manually_edited_at"),
 }, (table) => [
   uniqueIndex("news_canonical_unique").on(table.canonicalUrl),
   uniqueIndex("news_external_source_unique").on(table.externalId, table.sourceId),
@@ -78,6 +91,7 @@ export const wordpressPublications = sqliteTable("wordpress_publications", {
   articleId: integer("article_id").notNull().unique().references(() => articles.id),
   wordpressPostId: integer("wordpress_post_id").notNull(),
   wordpressUrl: text("wordpress_url"),
+  wordpressEditUrl: text("wordpress_edit_url"),
   wordpressStatus: text("wordpress_status").notNull(),
   createdAt: text("created_at").notNull(),
 });
@@ -93,3 +107,24 @@ export const jobLogs = sqliteTable("job_logs", {
   metadata: text("metadata"),
 });
 
+export const aiUsageLogs = sqliteTable("ai_usage_logs", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  operation: text("operation").notNull(),
+  provider: text("provider").notNull(),
+  model: text("model").notNull(),
+  status: text("status").notNull(),
+  inputTokens: integer("input_tokens").notNull().default(0),
+  outputTokens: integer("output_tokens").notNull().default(0),
+  estimatedCostUsd: real("estimated_cost_usd").notNull().default(0),
+  latencyMs: integer("latency_ms").notNull().default(0),
+  requestId: text("request_id"),
+  errorMessage: text("error_message"),
+  createdAt: text("created_at").notNull(),
+});
+
+export const jobLocks = sqliteTable("job_locks", {
+  name: text("name").primaryKey(),
+  owner: text("owner").notNull(),
+  lockedUntil: text("locked_until").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});

@@ -20,6 +20,7 @@ export const MONITORED_TOPICS = [
 ] as const;
 
 export const sourceInputSchema = z.object({
+  action: z.enum(["test", "save"]).default("save"),
   name: z.string().trim().min(2).max(120),
   feedUrl: z.string().url().max(1000),
   websiteUrl: z.string().url().max(1000).optional().or(z.literal("")),
@@ -38,6 +39,13 @@ export const contentInputSchema = z.object({
   tone: z.string().trim().max(80).default("Executivo e acessível"),
   title: z.string().trim().max(180).optional(),
   content: z.string().max(100_000).optional(),
+  allowDisconnected: z.boolean().default(false),
+});
+
+export const newsUpdateSchema = z.object({
+  action: z.enum(["setIcp", "relevant", "discard", "restore"]),
+  newsIds: z.array(z.number().int().positive()).min(1).max(100),
+  primaryIcp: z.string().trim().min(2).max(100).optional(),
 });
 
 export type ParsedFeedItem = {
@@ -45,6 +53,7 @@ export type ParsedFeedItem = {
   title: string;
   originalUrl: string;
   excerpt: string;
+  content: string;
   author: string;
   publishedAt: string;
 };
@@ -123,11 +132,14 @@ export function parseFeed(xml: string): ParsedFeedItem[] {
     const originalUrl = linkFromBlock(block);
     const dateValue = tag(block, ["pubDate", "published", "updated", "dc:date"]);
     const parsedDate = dateValue && !Number.isNaN(Date.parse(dateValue)) ? new Date(dateValue) : new Date();
+    const summary = tag(block, ["description", "summary"]);
+    const content = tag(block, ["content:encoded", "content"]) || summary;
     return {
       externalId: tag(block, ["guid", "id"]) || originalUrl || `${title}-${index}`,
       title,
       originalUrl,
-      excerpt: tag(block, ["description", "summary", "content:encoded", "content"]).slice(0, 1500),
+      excerpt: (summary || content).slice(0, 1500),
+      content: content.slice(0, 20_000),
       author: tag(block, ["author", "dc:creator"]),
       publishedAt: parsedDate.toISOString(),
     };
@@ -169,4 +181,3 @@ export async function sha256(value: string) {
   const hash = await crypto.subtle.digest("SHA-256", bytes);
   return [...new Uint8Array(hash)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
-

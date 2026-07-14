@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 test("mantém a experiência principal e remove o starter", async () => {
-  const [page, app, layout, css, packageJson, viteConfig, vercelConfig] = await Promise.all([
+  const [page, app, layout, css, packageJson, viteConfig, vercelConfig, vercelOutputScript] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/tf-news-app.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
@@ -11,11 +11,15 @@ test("mantém a experiência principal e remove o starter", async () => {
     readFile(new URL("../package.json", import.meta.url), "utf8"),
     readFile(new URL("../vite.config.ts", import.meta.url), "utf8"),
     readFile(new URL("../vercel.json", import.meta.url), "utf8"),
+    readFile(new URL("../scripts/ensure-vercel-output.mjs", import.meta.url), "utf8"),
   ]);
   assert.match(page, /TFNewsApp/);
   assert.match(app, /Monitoramento/);
   assert.match(app, /Criar Conteúdo/);
   assert.match(app, /Configurações/);
+  assert.doesNotMatch(app, /DEMO_NEWS|Prévia TF News/);
+  assert.match(app, /Testar feed/);
+  assert.match(app, /Abrir no WordPress/);
   assert.match(layout, /TF News — Inteligência editorial/);
   assert.match(app, /tf-news-icon\.png/);
   assert.match(app, /tf-news-horizontal\.png/);
@@ -29,6 +33,8 @@ test("mantém a experiência principal e remove o starter", async () => {
   assert.match(vercelConfig, /"framework": "nitro"/);
   assert.match(vercelConfig, /npm run build:vercel/);
   assert.match(vercelConfig, /"outputDirectory": null/);
+  assert.match(vercelConfig, /api\/cron\/collect/);
+  assert.match(vercelOutputScript, /outputConfig\.crons/);
   assert.doesNotMatch(vercelConfig, /\.next/);
   assert.doesNotMatch(`${page}${app}${layout}${packageJson}`, /codex-preview|Your site is taking shape|react-loading-skeleton/);
 });

@@ -3,5 +3,11 @@
   "framework": "nitro",
   "buildCommand": "npm run build:vercel",
   "installCommand": "npm ci",
-  "outputDirectory": null
+  "outputDirectory": null,
+  "crons": [
+    {
+      "path": "/api/cron/collect",
+      "schedule": "0 11,17,23 * * *"
+    }
+  ]
 }

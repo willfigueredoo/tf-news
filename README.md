@@ -2,60 +2,56 @@
 
 Plataforma interna de monitoramento de mercado e inteligência editorial da TransFAST.
 
-## O que já funciona
+## Fluxo operacional
 
-- painel executivo com filtro global por ICP;
-- cadastro e validação de fontes RSS/Atom;
-- coleta manual com timeout, limite de tamanho, User-Agent e proteção básica contra SSRF;
-- normalização, canonicalização, hash e deduplicação idempotente;
-- classificação determinística multi-ICP, temas, região, impacto logístico e relevância;
-- seleção múltipla de notícias;
-- briefing estruturado com fatos e fontes;
-- artigo original editável, SEO básico e salvamento interno;
-- integração WordPress protegida, sempre com `status: draft` e bloqueio de duplicidade;
-- logs de coleta e endpoints `/api/health` e `/api/ready`;
-- autenticação e acesso pelo ambiente privado do Sites.
+RSS/Atom real → coleta → normalização → deduplicação → classificação híbrida → Monitoramento → coerência editorial → briefing por IA → artigo HTML → revisão → draft WordPress → histórico e logs.
 
-## Estrutura
+## Capacidades
+
+- teste e cadastro de feeds reais, com timeout, retry, status e continuidade após falhas;
+- captura de título, URL, GUID, data, fonte, resumo e conteúdo disponível;
+- deduplicação por URL canônica, GUID por fonte, título normalizado e hash de conteúdo;
+- classificação determinística e, quando configurada, refinamento por IA validado com Zod;
+- filtros por ICP, fonte, data, relevância, tema e impacto;
+- seleção simples/múltipla, fonte original, ajuste manual de ICP, relevância e descarte;
+- bloqueio padrão de notícias desconectadas, com sugestão de grupos;
+- briefing e artigo somente com IA real configurada;
+- HTML sanitizado e compatível com WordPress, com H2, H3, listas e fontes rastreáveis;
+- WordPress REST API com teste, categorias, tags e criação exclusiva como `draft`;
+- bloqueio de envio duplicado por banco, lock e recuperação por slug;
+- coleta agendada três vezes por dia com segredo, lock, retries e logs;
+- D1 persistente, Drizzle migrations e adaptador server-only para a Vercel.
+
+## Desenvolvimento
+
+Requer Node.js 22.13 ou superior. Copie `.env.example` para `.env.local`, preencha somente valores locais e execute:
 
 ```text
-app/
-  api/                 fontes, coleta, notícias, conteúdo, WordPress e saúde
-  tf-news-app.tsx      experiência principal
-db/
-  schema.ts            modelo relacional
-  runtime.ts           inicialização segura do D1
-lib/
-  editorial.ts         RSS, URL, SSRF, classificação e scoring
-tests/                 testes críticos
+npm ci
+npm run db:migrate:local
+npm run dev
 ```
 
-## Desenvolvimento local
+Validação completa:
 
-Use Node.js 22.13 ou superior. Copie `.env.example` para `.env.local`, preencha somente o que for necessário e execute `npm install` e `npm run dev`. O banco D1 local é criado pelo ambiente de desenvolvimento quando a primeira API é chamada.
+```text
+npm run lint
+npm run typecheck
+npm test
+npm run build
+npm run build:vercel
+```
 
-Validação: `npm run lint`, `npm run typecheck`, `npm test` e `npm run build`.
+## Segurança operacional
 
-## WordPress
+Credenciais ficam apenas no servidor. O WordPress usa Application Password e nunca recebe `status: publish`. O cron falha fechado sem `CRON_SECRET`. A Vercel deve permanecer sob Deployment Protection enquanto não houver autenticação própria das APIs.
 
-No WordPress, crie um usuário de integração com permissão apenas para posts e gere uma *Application Password* no perfil desse usuário. Configure `WORDPRESS_BASE_URL`, `WORDPRESS_USERNAME` e `WORDPRESS_APPLICATION_PASSWORD` somente no ambiente do servidor. O sistema usa `/wp-json/wp/v2/posts` e força todos os envios para rascunho.
+Consulte `DEPLOYMENT.md` para variáveis, migrations e checklist de produção.
 
-## Agendamento
+## Limites reais
 
-A coleta manual já é idempotente. Em produção, acione o coletor de duas a três vezes por dia por um cron autenticado e mantenha `CRON_SECRET` no ambiente hospedado. O MVP não executa processo contínuo dentro da interface.
-
-## Decisões de arquitetura
-
-Monólito modular com rotas servidoras; D1 para persistência estruturada; SIWC/política de acesso do Sites para identidade; regras determinísticas antes de qualquer provedor de IA; integrações externas isoladas; WordPress *draft-only*. Credenciais nunca chegam ao navegador.
-
-## Limitações conhecidas
-
-- o parser cobre RSS/Atom comuns, mas feeds XML muito fora do padrão podem exigir um conector específico;
-- a proteção SSRF valida esquema e endereços privados explícitos, mas DNS rebinding deve receber uma camada de rede adicional em produção;
-- a geração atual usa fallback editorial determinístico; a abstração para provedor de IA é a próxima evolução;
-- o agendamento externo e a tela detalhada de logs ficam para a próxima fatia operacional.
-
-## Backlog V2
-
-Agrupamento semântico de eventos, tendências, comandos avançados em linguagem natural, calendário editorial, newsletter, Search Console, analytics, alertas por ICP, múltiplos usuários, aprovações por níveis, banco de imagens autorizado, CRM e integração com TF Insights.
-
+- IA, WordPress real e coleta cron em produção dependem das respectivas variáveis no ambiente hospedado;
+- o teste automatizado do WordPress é mockado; um draft real só pode ser confirmado com credenciais autorizadas;
+- feeds XML fora dos padrões RSS/Atom comuns podem exigir parser específico;
+- o D1 via Vercel usa a API HTTP da Cloudflare e tem mais latência que o binding direto no Worker;
+- Vinext e Nitro continuam em versões experimentais/beta e devem ser acompanhados em cada atualização.
