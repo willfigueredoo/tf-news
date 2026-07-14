@@ -1,14 +1,14 @@
 import { z } from "zod";
 
 export const ICP_CATALOG = [
-  { slug: "agronegocio", name: "Agronegócio", keywords: ["safra", "colheita", "plantio", "fertilizante", "bioinsumo", "semente", "agrícola", "agro", "grãos", "soja", "milho"] },
-  { slug: "maquinas", name: "Máquinas e Equipamentos Pesados", keywords: ["máquina", "equipamento pesado", "trator", "escavadeira", "construção", "implemento"] },
-  { slug: "quimica", name: "Indústria Química", keywords: ["química", "químico", "insumo químico", "petroquímica", "solvente", "reagente"] },
-  { slug: "termoplasticos", name: "Termoplásticos", keywords: ["termoplástico", "resina", "polímero", "polietileno", "polipropileno", "plástico"] },
-  { slug: "aco", name: "Aço", keywords: ["aço", "siderurgia", "metalurgia", "bobina", "laminado", "minério de ferro"] },
-  { slug: "tintas", name: "Tintas", keywords: ["tinta", "revestimento", "pigmento", "verniz"] },
-  { slug: "nutricao-animal", name: "Nutrição Animal", keywords: ["nutrição animal", "ração", "suplemento animal", "pecuária", "proteína animal"] },
-  { slug: "acm", name: "ACM", keywords: ["acm", "alumínio composto", "chapa de alumínio", "fachada"] },
+  { slug: "agronegocio", name: "Agronegócio", keywords: ["safra", "colheita", "plantio", "fertilizante", "bioinsumo", "semente", "agrícola", "agronegócio", "grãos", "soja", "milho", "armazenagem agrícola", "defensivo"], negativeKeywords: ["agroecologia urbana"] },
+  { slug: "maquinas", name: "Máquinas e Equipamentos Pesados", keywords: ["máquina agrícola", "equipamento pesado", "trator", "escavadeira", "retroescavadeira", "implemento", "linha amarela", "guindaste"], negativeKeywords: ["máquina de lavar", "machine learning"] },
+  { slug: "quimica", name: "Indústria Química", keywords: ["indústria química", "produto químico", "insumo químico", "petroquímica", "solvente", "reagente", "especialidade química"], negativeKeywords: ["química do amor", "química entre"] },
+  { slug: "termoplasticos", name: "Termoplásticos", keywords: ["termoplástico", "resina", "polímero", "polietileno", "polipropileno", "plástico de engenharia", "composto plástico"], negativeKeywords: ["cirurgia plástica"] },
+  { slug: "aco", name: "Aço", keywords: ["aço", "siderurgia", "siderúrgica", "metalurgia", "bobina de aço", "laminado", "minério de ferro", "chapa de aço"], negativeKeywords: ["ação judicial", "mercado de ações"] },
+  { slug: "tintas", name: "Tintas", keywords: ["tinta industrial", "tinta", "revestimento", "pigmento", "verniz", "resina para tintas"], negativeKeywords: ["tinta de cabelo", "maquiagem"] },
+  { slug: "nutricao-animal", name: "Nutrição Animal", keywords: ["nutrição animal", "ração", "suplemento animal", "pecuária", "proteína animal", "premix", "aditivo alimentar animal"], negativeKeywords: ["nutrição humana", "dieta humana"] },
+  { slug: "acm", name: "ACM", keywords: ["acm", "alumínio composto", "chapa de alumínio", "fachada", "painel composto de alumínio"], negativeKeywords: ["association for computing machinery", "acm sig"] },
 ] as const;
 
 export const MONITORED_TOPICS = [
@@ -25,6 +25,34 @@ export const sourceInputSchema = z.object({
   feedUrl: z.string().url().max(1000),
   websiteUrl: z.string().url().max(1000).optional().or(z.literal("")),
   reliabilityScore: z.number().int().min(0).max(100).default(75),
+  priority: z.number().int().min(0).max(100).default(50),
+  collectionFrequencyMinutes: z.number().int().min(60).max(10_080).default(720),
+  language: z.string().trim().min(2).max(20).default("pt-BR"),
+  country: z.string().trim().min(2).max(80).default("BR"),
+  region: z.string().trim().min(2).max(100).default("Brasil"),
+  relatedIcps: z.array(z.string().trim().min(2).max(100)).max(8).default([]),
+  notes: z.string().trim().max(2000).default(""),
+});
+
+export const sourceUpdateSchema = z.object({
+  id: z.number().int().positive(),
+  action: z.enum(["update", "activate", "pause", "archive"]),
+  name: z.string().trim().min(2).max(120).optional(),
+  feedUrl: z.string().url().max(1000).optional(),
+  websiteUrl: z.string().url().max(1000).optional().or(z.literal("")),
+  reliabilityScore: z.number().int().min(0).max(100).optional(),
+  priority: z.number().int().min(0).max(100).optional(),
+  collectionFrequencyMinutes: z.number().int().min(60).max(10_080).optional(),
+  language: z.string().trim().min(2).max(20).optional(),
+  country: z.string().trim().min(2).max(80).optional(),
+  region: z.string().trim().min(2).max(100).optional(),
+  relatedIcps: z.array(z.string().trim().min(2).max(100)).max(8).optional(),
+  notes: z.string().trim().max(2000).optional(),
+});
+
+export const sourceImportSchema = z.object({
+  action: z.literal("import"),
+  csv: z.string().min(1).max(300_000),
 });
 
 export const collectInputSchema = z.object({ sourceId: z.number().int().positive() });
@@ -43,9 +71,15 @@ export const contentInputSchema = z.object({
 });
 
 export const newsUpdateSchema = z.object({
-  action: z.enum(["setIcp", "relevant", "discard", "restore"]),
-  newsIds: z.array(z.number().int().positive()).min(1).max(100),
+  action: z.enum(["setIcp", "addSecondaryIcp", "relevant", "discard", "archive", "restore", "read", "unread", "favorite", "unfavorite", "analysis", "selected", "used", "setTopics", "addTag", "setRelevance", "setImpact", "addNote"]),
+  newsIds: z.array(z.number().int().positive()).min(1).max(200),
   primaryIcp: z.string().trim().min(2).max(100).optional(),
+  secondaryIcp: z.string().trim().min(2).max(100).optional(),
+  topics: z.array(z.string().trim().min(2).max(80)).max(20).optional(),
+  tag: z.string().trim().min(2).max(80).optional(),
+  relevanceScore: z.number().int().min(0).max(100).optional(),
+  logisticsImpact: z.enum(["low", "medium", "high"]).optional(),
+  note: z.string().trim().max(4000).optional(),
 });
 
 export type ParsedFeedItem = {
@@ -125,6 +159,14 @@ function linkFromBlock(block: string) {
   return atomLink ? decodeEntities(atomLink) : tag(block, ["link"]);
 }
 
+export function parseFeedMetadata(xml: string) {
+  const withoutItems = xml.replace(/<(item|entry)\b[^>]*>[\s\S]*?<\/\1>/gi, "");
+  const title = tag(withoutItems, ["title"]);
+  const declaredEncoding = xml.match(/^\s*<\?xml[^>]*encoding=["']([^"']+)["']/i)?.[1] ?? "UTF-8";
+  const format = /<feed\b/i.test(xml) ? "atom" : /<rss\b|<channel\b/i.test(xml) ? "rss" : "unknown";
+  return { title, encoding: declaredEncoding, format };
+}
+
 export function parseFeed(xml: string): ParsedFeedItem[] {
   const blocks = [...xml.matchAll(/<(item|entry)\b[^>]*>([\s\S]*?)<\/\1>/gi)].map((match) => match[2]);
   return blocks.slice(0, 50).map((block, index) => {
@@ -147,10 +189,16 @@ export function parseFeed(xml: string): ParsedFeedItem[] {
 }
 
 export function classifyNews(input: { title: string; excerpt: string; publishedAt: string; reliabilityScore: number }): Classification {
-  const haystack = normalizeText(`${input.title} ${input.excerpt}`);
+  const normalizedTitle = normalizeText(input.title);
+  const normalizedExcerpt = normalizeText(input.excerpt);
+  const haystack = `${normalizedTitle} ${normalizedExcerpt}`;
   const icpMatches = ICP_CATALOG.map((icp) => ({
     name: icp.name,
-    score: icp.keywords.reduce((total, keyword) => total + (haystack.includes(normalizeText(keyword)) ? 1 : 0), 0),
+    matches: icp.keywords.filter((keyword) => haystack.includes(normalizeText(keyword))),
+    score: Math.max(0, icp.keywords.reduce((total, keyword) => {
+      const term = normalizeText(keyword);
+      return total + (normalizedTitle.includes(term) ? 3 : normalizedExcerpt.includes(term) ? 1 : 0);
+    }, 0) - icp.negativeKeywords.reduce((total, keyword) => total + (haystack.includes(normalizeText(keyword)) ? 4 : 0), 0)),
   })).filter((match) => match.score > 0).sort((a, b) => b.score - a.score);
   const topics = MONITORED_TOPICS.filter((topic) => haystack.includes(normalizeText(topic))).slice(0, 5);
   const logisticsTerms = ["logistica", "transporte", "rodovia", "porto", "frete", "armazen", "distribu", "abastecimento", "exporta", "importa"];
@@ -158,7 +206,7 @@ export function classifyNews(input: { title: string; excerpt: string; publishedA
   const logisticsImpact = logisticsHits >= 3 ? "high" : logisticsHits >= 1 ? "medium" : "low";
   const ageHours = Math.max(0, (Date.now() - new Date(input.publishedAt).getTime()) / 3_600_000);
   const freshness = ageHours <= 24 ? 100 : ageHours <= 168 ? 75 : ageHours <= 720 ? 45 : 20;
-  const icpFit = Math.min(100, (icpMatches[0]?.score ?? 0) * 32 + Math.min(20, topics.length * 4));
+  const icpFit = Math.min(100, (icpMatches[0]?.score ?? 0) * 14 + Math.min(20, topics.length * 4));
   const logisticsScore = logisticsImpact === "high" ? 100 : logisticsImpact === "medium" ? 65 : 20;
   const verifiable = /\b\d+(?:[.,]\d+)?(?:%| mil| milhões| bilhões)?\b/.test(haystack) ? 85 : 55;
   const relevanceScore = Math.round(input.reliabilityScore * .2 + freshness * .15 + icpFit * .25 + logisticsScore * .2 + Math.min(100, topics.length * 20) * .1 + verifiable * .1);
@@ -172,7 +220,7 @@ export function classifyNews(input: { title: string; excerpt: string; publishedA
     region,
     logisticsImpact,
     relevanceScore: Math.max(0, Math.min(100, relevanceScore)),
-    reason: `Aderência a ${primaryIcp}; ${topics.length} tema(s) prioritário(s) identificado(s) e impacto logístico ${logisticsImpact === "high" ? "alto" : logisticsImpact === "medium" ? "moderado" : "baixo"}.`,
+    reason: `Aderência a ${primaryIcp} por ${icpMatches[0]?.matches.slice(0, 4).join(", ") || "contexto geral de mercado"}; ${topics.length} tema(s) prioritário(s) e impacto logístico ${logisticsImpact === "high" ? "alto" : logisticsImpact === "medium" ? "moderado" : "baixo"}.`,
   };
 }
 

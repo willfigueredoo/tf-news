@@ -4,14 +4,17 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { ICP_CATALOG } from "../lib/editorial";
+import { MonitoringWorkspace } from "./monitoring-workspace";
+import { OperationsHistory } from "./operations-history";
+import { SourceManager } from "./source-manager";
 
 type View = "Painel" | "Monitoramento" | "Criar Conteúdo" | "Conteúdos" | "Configurações";
-type News = { id: number; title: string; originalUrl: string; sourceId: number; sourceName: string; publishedAt: string; collectedAt: string; excerpt: string; content: string; region: string; logisticsImpact: "low" | "medium" | "high"; relevanceScore: number; status: string; topics: string[]; icps: string[]; primaryIcp: string; secondaryIcps: string[]; classificationReason: string; classificationMethod: string };
-type Source = { id: number; name: string; domain: string; feedUrl: string; websiteUrl: string | null; reliabilityScore: number; active: boolean; lastCollectedAt: string | null; lastSuccessAt: string | null; lastFailureAt: string | null; lastError: string | null; lastStatus: string; lastDurationMs: number | null; lastHttpStatus: number | null; lastItemCount: number; consecutiveFailures: number };
+type News = { id: number; title: string; originalUrl: string; sourceId: number; sourceName: string; domain?: string; author?: string | null; publishedAt: string; collectedAt: string; excerpt: string; content: string; region: string; logisticsImpact: "low" | "medium" | "high"; relevanceScore: number; status: string; topics: string[]; icps: string[]; primaryIcp: string; secondaryIcps: string[]; classificationReason: string; classificationMethod: string; read?: boolean; readAt?: string | null; favorite?: boolean; archived?: boolean; archivedAt?: string | null; internalNotes?: string; manualOverride?: boolean; collectionRunId?: string | null };
+type Source = { id: number; name: string; domain: string; feedUrl: string; websiteUrl: string | null; type?: string; status?: string; reliabilityScore: number; active: boolean; health?: string; priority?: number; collectionFrequencyMinutes?: number; language?: string; country?: string; region?: string; relatedIcps?: string[]; notes?: string; lastCollectedAt: string | null; lastSuccessAt: string | null; lastFailureAt: string | null; lastError: string | null; lastStatus: string; lastDurationMs: number | null; lastHttpStatus: number | null; lastItemCount: number; consecutiveFailures: number; nextCollectionAt?: string | null; archivedAt?: string | null; totalNewsCollected?: number; averageResponseMs?: number };
 type Brief = { id: number; title: string; summary: string; mainEvent: string; primaryIcp: string; secondaryIcps: string[]; topics: string[]; regions: string[]; importance: string; opportunity: string; logisticsImpact: string; suggestedTitle: string; alternativeTitles: string[]; structure: string[]; cta: string; warnings: string[] };
 type Article = { id: number; briefId: number; title: string; slug: string; excerpt: string; content: string; primaryKeyword: string; status: string; qualityScore: number; createdAt: string; updatedAt: string; wordpressPostId?: number | null; wordpressUrl?: string | null; wordpressEditUrl?: string | null; wordpressStatus?: string | null };
 type AiStatus = { configured: boolean; provider: string | null; model: string | null; dailyCostLimitUsd: number; dailyRequestLimit: number; costTrackingConfigured: boolean };
-type OperationalLogs = { jobs: Array<Record<string, unknown>>; ai: Array<Record<string, unknown>> };
+type OperationalLogs = { jobs: Array<Record<string, unknown>>; ai: Array<Record<string, unknown>>; collectionRuns?: Array<Record<string, unknown>>; dashboard?: Record<string, unknown> };
 
 const VIEWS: { name: View; icon: string }[] = [
   { name: "Painel", icon: "⌂" }, { name: "Monitoramento", icon: "◉" }, { name: "Criar Conteúdo", icon: "✦" }, { name: "Conteúdos", icon: "▤" }, { name: "Configurações", icon: "⚙" },
@@ -34,20 +37,21 @@ export function TFNewsApp({ userName, userEmail, initialUpdatedAt }: { userName:
   const [article, setArticle] = useState<Article | null>(null);
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
-  const [settingsTab, setSettingsTab] = useState("Fontes");
+  const [settingsTab, setSettingsTab] = useState("Fontes operacionais");
   const [wpConfigured, setWpConfigured] = useState(false);
   const [aiStatus, setAiStatus] = useState<AiStatus | null>(null);
   const [logs, setLogs] = useState<OperationalLogs>({ jobs: [], ai: [] });
   const [initialLoading, setInitialLoading] = useState(true);
   const [dataError, setDataError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState(initialUpdatedAt);
+  const [referenceDate] = useState(() => new Date().toISOString());
   const [objective, setObjective] = useState("Analisar o acontecimento e explicar impactos para operação, distribuição e transporte.");
   const [keyword, setKeyword] = useState("logística B2B");
 
   const notify = useCallback((message: string) => { setToast(message); window.setTimeout(() => setToast(null), 5000); }, []);
   const refreshAll = useCallback(async () => {
     try {
-      const responses = await Promise.all([fetch("/api/news"), fetch("/api/sources"), fetch("/api/content"), fetch("/api/wordpress"), fetch("/api/ai/status"), fetch("/api/logs")]);
+      const responses = await Promise.all([fetch("/api/news?pageSize=100&includeDiscarded=true&includeArchived=true"), fetch("/api/sources?includeArchived=true"), fetch("/api/content"), fetch("/api/wordpress"), fetch("/api/ai/status"), fetch("/api/logs")]);
       if (!responses[0].ok || !responses[1].ok || !responses[2].ok) throw new Error("O banco de dados não respondeu corretamente.");
       setNews(((await responses[0].json()) as { news: News[] }).news);
       setSources(((await responses[1].json()) as { sources: Source[] }).sources);
@@ -64,7 +68,7 @@ export function TFNewsApp({ userName, userEmail, initialUpdatedAt }: { userName:
 
   const filteredNews = useMemo(() => news.filter((item) => {
     const matchesIcp = globalIcp === "Todos os ICPs" || item.icps.includes(globalIcp) || item.primaryIcp === globalIcp;
-    const text = `${item.title} ${item.excerpt} ${item.topics.join(" ")}`.toLowerCase();
+    const text = `${item.title} ${item.excerpt} ${item.content} ${item.sourceName} ${item.domain ?? ""} ${item.originalUrl} ${item.topics.join(" ")}`.toLowerCase();
     return matchesIcp && (!search || text.includes(search.toLowerCase()));
   }), [news, globalIcp, search]);
   const liveSelected = [...selected].filter((id) => news.some((item) => item.id === id));
@@ -74,6 +78,8 @@ export function TFNewsApp({ userName, userEmail, initialUpdatedAt }: { userName:
   function toggleNews(id: number) { setSelected((current) => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; }); }
   function startContent() { if (!liveSelected.length) { notify("Selecione ao menos uma notícia real no monitoramento."); chooseView("Monitoramento"); return; } setBrief(null); setArticle(null); chooseView("Criar Conteúdo"); }
 
+  // Kept temporarily for the legacy monitor while the operational workspace is stabilized.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   async function updateNews(action: "setIcp" | "relevant" | "discard" | "restore", newsIds: number[], primaryIcp?: string) {
     setBusy(true);
     try {
@@ -137,8 +143,8 @@ export function TFNewsApp({ userName, userEmail, initialUpdatedAt }: { userName:
     <aside className="sidebar"><div className="brand"><img className="sidebar-logo" src="/brand/tf-news-icon.png" alt="TF News" width="56" height="56" loading="eager" decoding="async" /></div><div className="nav-label">Newsroom</div><nav className="nav" aria-label="Navegação principal">{VIEWS.map((item) => <button key={item.name} className={`nav-button ${view === item.name ? "active" : ""}`} onClick={() => chooseView(item.name)}><span className="nav-icon">{item.icon}</span>{item.name}</button>)}</nav><div className="sidebar-foot"><div className="live-status"><span className="live-dot" /> Monitoramento operacional</div><div className="source-meta" style={{ marginTop: 8 }}>{sources.length} fonte(s) cadastrada(s)</div></div></aside>
     <main className="main"><header className="topbar"><div className="header-context"><img className="header-logo" src="/brand/tf-news-horizontal.png" alt="TF News" width="126" height="63" loading="eager" decoding="async" /><div><div className="crumb">Inteligência editorial</div><div className="page-name">{view}<span className="update-time">Atualizado às {lastUpdated}</span></div></div></div><div className="top-actions"><select className="global-select" value={globalIcp} onChange={(event) => setGlobalIcp(event.target.value)} aria-label="Filtrar todo o sistema por ICP"><option>Todos os ICPs</option>{ICP_CATALOG.map((icp) => <option key={icp.slug}>{icp.name}</option>)}</select><button className="theme-toggle" onClick={toggleTheme} aria-label="Alternar entre modo claro e escuro" title="Alternar tema"><span className="theme-icon-light" aria-hidden="true">☼</span><span className="theme-icon-dark" aria-hidden="true">◐</span></button><div className="user-chip" title={userEmail}><div className="avatar">{initials(userName)}</div><div className="user-copy"><strong>{userName}</strong><span>Editor</span></div></div></div></header>
       <div className="content">{dataError && <div className="notice">{dataError}</div>}
-        {view === "Painel" && <Dashboard news={filteredNews} sources={sources} articles={articles} loading={initialLoading} onMonitor={() => chooseView("Monitoramento")} />}
-        {view === "Monitoramento" && <Monitoring news={filteredNews} sources={sources} selected={selected} search={search} setSearch={setSearch} toggleNews={toggleNews} toggleAll={(ids) => setSelected(new Set(ids))} startContent={startContent} updateNews={updateNews} busy={busy} />}
+        {view === "Painel" && <Dashboard news={filteredNews} sources={sources} logs={logs} loading={initialLoading} referenceDate={referenceDate} onMonitor={() => chooseView("Monitoramento")} />}
+        {view === "Monitoramento" && <MonitoringWorkspace news={filteredNews} sources={sources} selected={selected} search={search} setSearch={setSearch} toggleNews={toggleNews} toggleAll={(ids) => setSelected(new Set(ids))} startContent={startContent} refresh={refreshAll} notify={notify} busy={busy} setBusy={setBusy} aiConfigured={Boolean(aiStatus?.configured)} />}
         {view === "Criar Conteúdo" && <CreateContent selectedCount={liveSelected.length} brief={brief} article={article} setArticle={setArticle} objective={objective} setObjective={setObjective} keyword={keyword} setKeyword={setKeyword} busy={busy} aiConfigured={Boolean(aiStatus?.configured)} generateBrief={generateBrief} generateArticle={generateArticle} saveArticle={saveArticle} onChooseNews={() => chooseView("Monitoramento")} />}
         {view === "Conteúdos" && <Contents articles={articles} busy={busy} wpConfigured={wpConfigured} openArticle={(item) => { setArticle(item); chooseView("Criar Conteúdo"); }} sendWordPress={sendWordPress} />}
         {view === "Configurações" && <Settings tab={settingsTab} setTab={setSettingsTab} sources={sources} wpConfigured={wpConfigured} aiStatus={aiStatus} logs={logs} busy={busy} setBusy={setBusy} notify={notify} refresh={refreshAll} />}
@@ -147,15 +153,23 @@ export function TFNewsApp({ userName, userEmail, initialUpdatedAt }: { userName:
   </div>;
 }
 
-function Dashboard({ news, sources, articles, loading, onMonitor }: { news: News[]; sources: Source[]; articles: Article[]; loading: boolean; onMonitor: () => void }) {
+function Dashboard({ news, sources, logs, loading, referenceDate, onMonitor }: { news: News[]; sources: Source[]; logs: OperationalLogs; loading: boolean; referenceDate: string; onMonitor: () => void }) {
   const high = news.filter((item) => item.relevanceScore >= 80).length;
+  const today = referenceDate.slice(0, 10);
+  const collectedToday = news.filter((item) => item.collectedAt.startsWith(today)).length;
+  const duplicates = Number((logs.dashboard as { duplicates?: number } | undefined)?.duplicates ?? 0);
   const metrics = [
-    { label: "Notícias monitoradas", value: news.length, foot: "Registros reais persistidos", trend: "Dados reais" },
-    { label: "Alta prioridade", value: high, foot: "Relevância acima de 80", trend: "Curadoria" },
-    { label: "Prontas para produção", value: articles.length, foot: "Rascunhos no histórico", trend: "Persistido" },
-    { label: "Fontes ativas", value: sources.filter((source) => source.active).length, foot: "Feeds cadastrados", trend: sources.some((source) => source.lastError) ? "Com alertas" : "Operacional" },
+    { label: "Notícias monitoradas", value: news.length, foot: "Registros persistidos", trend: "Dados reais" },
+    { label: "Coletadas hoje", value: collectedToday, foot: "Entradas desde 00:00 UTC", trend: "Coleta" },
+    { label: "Notícias novas", value: news.filter((item) => item.status === "new").length, foot: "Aguardando curadoria", trend: "Operação" },
+    { label: "Alta relevância", value: high, foot: "Score 80 ou mais", trend: "Prioridade" },
+    { label: "Fontes ativas", value: sources.filter((source) => source.active && !source.archivedAt).length, foot: "Feeds em operação", trend: "Fontes" },
+    { label: "Fontes saudáveis", value: sources.filter((source) => source.health === "healthy").length, foot: "Última coleta concluída", trend: "Saúde" },
+    { label: "Fontes com erro", value: sources.filter((source) => source.health === "failed").length, foot: "Três ou mais falhas", trend: "Atenção" },
+    { label: "Duplicadas", value: duplicates, foot: "Detectadas nas execuções", trend: "Deduplicação" },
   ];
-  const bars = Array.from({ length: 12 }, (_, index) => news.filter((item) => new Date(item.collectedAt).getUTCHours() % 12 === index).length);
+  const days = Array.from({ length: 7 }, (_, index) => new Date(Date.parse(referenceDate) - (6 - index) * 86_400_000).toISOString().slice(0, 10));
+  const bars = days.map((day) => news.filter((item) => item.collectedAt.startsWith(day)).length);
   const maxBar = Math.max(1, ...bars);
   return <><section className="dashboard-hero"><div className="hero-copy"><div className="eyebrow"><span className="signal-pulse" /> Visão executiva</div><h1>Mercado em movimento.</h1><p className="subtitle">Transformando sinais dos seus mercados em oportunidades de conteúdo.</p></div><button className="primary" onClick={onMonitor}>Explorar monitoramento <span aria-hidden="true">→</span></button></section>
     {!news.length && <div className="notice">Ainda não há notícias reais. Cadastre ou colete uma fonte RSS em Configurações.</div>}
@@ -166,7 +180,7 @@ function Dashboard({ news, sources, articles, loading, onMonitor }: { news: News
       <section className="card panel"><div className="panel-title"><h2>Temas em evidência</h2><small>Por recorrência</small></div><div className="tags">{[...new Set(news.flatMap((item) => item.topics))].slice(0, 12).map((topic, index) => <span className={`tag ${index < 3 ? "red" : ""}`} key={topic}>{topic}</span>)}</div></section></div></>;
 }
 
-function Monitoring({ news, sources, selected, search, setSearch, toggleNews, toggleAll, startContent, updateNews, busy }: { news: News[]; sources: Source[]; selected: Set<number>; search: string; setSearch: (value: string) => void; toggleNews: (id: number) => void; toggleAll: (ids: number[]) => void; startContent: () => void; updateNews: (action: "setIcp" | "relevant" | "discard" | "restore", newsIds: number[], primaryIcp?: string) => Promise<void>; busy: boolean }) {
+export function LegacyMonitoring({ news, sources, selected, search, setSearch, toggleNews, toggleAll, startContent, updateNews, busy }: { news: News[]; sources: Source[]; selected: Set<number>; search: string; setSearch: (value: string) => void; toggleNews: (id: number) => void; toggleAll: (ids: number[]) => void; startContent: () => void; updateNews: (action: "setIcp" | "relevant" | "discard" | "restore", newsIds: number[], primaryIcp?: string) => Promise<void>; busy: boolean }) {
   const [page, setPage] = useState(1); const [impact, setImpact] = useState("all"); const [source, setSource] = useState("all"); const [period, setPeriod] = useState("30"); const [minimum, setMinimum] = useState("0"); const [topic, setTopic] = useState("all");
   const [referenceTime] = useState(() => Date.now());
   const topics = [...new Set(news.flatMap((item) => item.topics))].sort();
@@ -193,7 +207,7 @@ function Contents({ articles, busy, wpConfigured, openArticle, sendWordPress }: 
 }
 
 function Settings({ tab, setTab, sources, wpConfigured, aiStatus, logs, busy, setBusy, notify, refresh }: { tab: string; setTab: (value: string) => void; sources: Source[]; wpConfigured: boolean; aiStatus: AiStatus | null; logs: OperationalLogs; busy: boolean; setBusy: (value: boolean) => void; notify: (value: string) => void; refresh: () => Promise<void> }) {
-  const tabs = ["Fontes", "ICPs", "WordPress", "Inteligência artificial", "Automação", "Logs"];
+  const tabs = ["Fontes operacionais", "ICPs", "Histórico", "Automação", "WordPress", "Inteligência artificial", "Logs"];
   async function submitSource(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setBusy(true); const formElement = event.currentTarget; const form = new FormData(formElement); const submitter = (event.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null; const action = submitter?.value === "test" ? "test" : "save";
     try {
@@ -211,11 +225,13 @@ function Settings({ tab, setTab, sources, wpConfigured, aiStatus, logs, busy, se
   async function collect(sourceId: number) { setBusy(true); try { const response = await fetch("/api/collect", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sourceId }) }); const data = await response.json() as { created?: number; duplicates?: number; error?: string }; if (!response.ok) throw new Error(data.error ?? "Falha na coleta."); notify(`${data.created} nova(s); ${data.duplicates} duplicada(s) ignorada(s).`); await refresh(); } catch (error) { notify(error instanceof Error ? error.message : "Falha na coleta."); } finally { setBusy(false); } }
   async function testWordPress() { setBusy(true); try { const connection = await fetch("/api/wordpress", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "test" }) }); const data = await connection.json() as { user?: string; error?: string }; if (!connection.ok) throw new Error(data.error ?? "Falha na conexão."); const taxonomies = await fetch("/api/wordpress", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "taxonomies" }) }); const lists = await taxonomies.json() as { categories?: unknown[]; tags?: unknown[]; error?: string }; if (!taxonomies.ok) throw new Error(lists.error ?? "Falha ao listar categorias e tags."); notify(`WordPress conectado como ${data.user}: ${lists.categories?.length ?? 0} categorias e ${lists.tags?.length ?? 0} tags.`); } catch (error) { notify(error instanceof Error ? error.message : "Falha na conexão."); } finally { setBusy(false); } }
   return <><div className="section-head"><div><div className="eyebrow">Administração</div><h1>Configurações</h1><p className="subtitle">Fontes, segmentos e integrações do fluxo editorial.</p></div></div><div className="settings-grid"><nav className="card settings-nav" aria-label="Seções de configuração">{tabs.map((item) => <button className={`settings-tab ${tab === item ? "active" : ""}`} key={item} onClick={() => setTab(item)}>{item}</button>)}</nav><section className="card form-card">
+    {tab === "Fontes operacionais" && <SourceManager sources={sources} busy={busy} setBusy={setBusy} notify={notify} refresh={refresh} />}
+    {tab === "Histórico" && <OperationsHistory runs={logs.collectionRuns} />}
     {tab === "Fontes" && <><div className="panel-title"><h2>Cadastrar fonte RSS ou Atom</h2><small>Teste antes de salvar</small></div><form className="form-grid" onSubmit={submitSource}><div className="form-group"><label className="label" htmlFor="source-name">Nome</label><input required minLength={2} id="source-name" name="name" className="field" /></div><div className="form-group"><label className="label" htmlFor="feed-url">URL do feed</label><input required type="url" id="feed-url" name="feedUrl" className="field" /></div><div className="form-group"><label className="label" htmlFor="site-url">Site da fonte</label><input type="url" id="site-url" name="websiteUrl" className="field" /></div><div className="form-group"><label className="label" htmlFor="reliability">Confiabilidade</label><input id="reliability" name="reliabilityScore" type="number" min="0" max="100" defaultValue="75" className="field" /></div><div className="form-group full inline-actions"><button className="secondary" name="action" value="test" disabled={busy}>Testar feed</button><button className="primary" name="action" value="save" disabled={busy}>{busy ? "Processando…" : "Cadastrar e coletar"}</button></div></form><div style={{ marginTop: 24 }}><div className="panel-title"><h2>Fontes cadastradas</h2><small>{sources.length} total</small></div>{sources.map((item) => <div className="source-line" key={item.id}><div className="source-logo">{initials(item.name)}</div><div><div className="source-name">{item.name}</div><div className="source-meta">{item.feedUrl} · {item.lastStatus} · {item.lastItemCount} itens</div>{item.lastError && <div className="source-meta" style={{ color: "#b4111d" }}>{item.lastError}</div>}</div><button className="secondary" style={{ marginLeft: "auto" }} disabled={busy} onClick={() => void collect(item.id)}>Coletar agora</button></div>)}</div></>}
     {tab === "ICPs" && <><div className="panel-title"><h2>Segmentos monitorados</h2><small>{ICP_CATALOG.length} ativos</small></div>{ICP_CATALOG.map((icp) => <div className="source-line" key={icp.slug}><div className="source-logo">{initials(icp.name)}</div><div><div className="source-name">{icp.name}</div><div className="source-meta">{icp.keywords.slice(0, 5).join(" · ")}</div></div><span className="source-state">ATIVO</span></div>)}</>}
     {tab === "WordPress" && <><div className="panel-title"><h2>WordPress REST API</h2><span className={`status ${wpConfigured ? "sent" : "review"}`}>{wpConfigured ? "Configurado" : "Pendente"}</span></div><div className="notice">Todo envio é forçado para <strong>draft</strong>. O teste também valida categorias e tags.</div><div className="brief-box"><code>WORDPRESS_BASE_URL</code><br /><code>WORDPRESS_USERNAME</code><br /><code>WORDPRESS_APPLICATION_PASSWORD</code></div><button className="primary" style={{ marginTop: 14 }} disabled={!wpConfigured || busy} onClick={() => void testWordPress()}>Testar conexão real</button></>}
     {tab === "Inteligência artificial" && <><div className="panel-title"><h2>Camada editorial real</h2><span className={`status ${aiStatus?.configured ? "sent" : "review"}`}>{aiStatus?.configured ? "Configurada" : "Pendente"}</span></div><p className="subtitle">Briefing e artigo só são gerados com o provedor real configurado. A classificação mantém regras determinísticas como contingência.</p><div className="check">Respostas estruturadas e validadas com Zod</div><div className="check">Timeout e retry limitado</div><div className="check">Logs de tokens, latência e custo estimado</div><div className="check">Limite diário de {aiStatus?.dailyRequestLimit ?? 100} chamadas e US$ {aiStatus?.dailyCostLimitUsd ?? 5}</div>{aiStatus?.configured && <div className="notice">Modelo ativo: {aiStatus.model}. Custeio {aiStatus.costTrackingConfigured ? "configurado" : "sem tarifas configuradas"}.</div>}</>}
-    {tab === "Automação" && <><div className="panel-title"><h2>Coleta agendada</h2><span className="status sent">3 vezes por dia</span></div><p className="subtitle">Execuções às 08:00, 14:00 e 20:00 de Brasília, com segredo de cron, lock, idempotência, retries e logs.</p><div className="check">Uma falha de fonte não interrompe as demais</div><div className="check">Bloqueio contra execuções concorrentes</div><div className="check">CRON_SECRET obrigatório</div></>}
+    {tab === "Automação" && <><div className="panel-title"><h2>Coleta agendada</h2><span className="status sent">3 vezes por dia</span></div><p className="subtitle">Execuções às 08:00, 14:00 e 20:00 de Brasília no plano Pro atual, com segredo, lock, idempotência, retries e logs.</p><div className="check">Uma falha de fonte não interrompe as demais</div><div className="check">Bloqueio contra execuções concorrentes e idempotência</div><div className="check">CRON_SECRET obrigatório</div></>}
     {tab === "Logs" && <><div className="panel-title"><h2>Histórico operacional</h2><small>{logs.jobs.length} jobs · {logs.ai.length} chamadas de IA</small></div>{logs.jobs.length ? logs.jobs.slice(0, 30).map((log, index) => <div className="log-line" key={String(log.id ?? index)}><strong>{String(log.job_type ?? "job")}</strong><span className={`status ${log.status === "success" ? "sent" : log.status === "failed" ? "error" : "review"}`}>{String(log.status)}</span><small>{String(log.started_at ?? "")}</small>{Boolean(log.error_message) && <p>{String(log.error_message)}</p>}</div>) : <div className="empty"><strong>Nenhuma execução registrada</strong>Os próximos jobs e envios aparecerão aqui.</div>}</>}
   </section></div></>;
 }

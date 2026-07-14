@@ -17,11 +17,12 @@ try {
   const now = new Date().toISOString();
 
   const [created] = await sql.begin(async (transaction) => {
-    const inserted = await transaction`
+    const [inserted] = await transaction`
       insert into job_logs (job_type, status, started_at, finished_at, processed_items, metadata)
       values ('database-check', 'success', ${now}, ${now}, 1, ${marker})
       returning id
     `;
+    if (!inserted?.id) throw new Error("O PostgreSQL não retornou o registro de diagnóstico.");
     const rows = await transaction`
       select id from job_logs where id = ${inserted.id} and metadata = ${marker}
     `;

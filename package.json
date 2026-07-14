@@ -15,7 +15,8 @@
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next --ignore-pattern .vercel --ignore-pattern work --ignore-pattern outputs",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "node --env-file-if-exists=.env.local scripts/migrate.mjs",
-    "db:check": "node --env-file-if-exists=.env.local scripts/check-database.mjs"
+    "db:check": "node --env-file-if-exists=.env.local scripts/check-database.mjs",
+    "db:check:schema": "node --env-file-if-exists=.env.local scripts/check-schema.mjs"
   },
   "dependencies": {
     "drizzle-orm": "0.45.2",

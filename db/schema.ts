@@ -17,6 +17,15 @@ export const sources = pgTable("sources", {
   websiteUrl: text("website_url"),
   reliabilityScore: integer("reliability_score").notNull().default(75),
   active: boolean("active").notNull().default(true),
+  type: text("type").notNull().default("rss"),
+  status: text("status").notNull().default("active"),
+  priority: integer("priority").notNull().default(50),
+  collectionFrequencyMinutes: integer("collection_frequency_minutes").notNull().default(720),
+  language: text("language").notNull().default("pt-BR"),
+  country: text("country").notNull().default("BR"),
+  region: text("region").notNull().default("Brasil"),
+  relatedIcps: text("related_icps").notNull().default("[]"),
+  notes: text("notes").notNull().default(""),
   lastCollectedAt: text("last_collected_at"),
   lastSuccessAt: text("last_success_at"),
   lastFailureAt: text("last_failure_at"),
@@ -26,6 +35,10 @@ export const sources = pgTable("sources", {
   lastHttpStatus: integer("last_http_status"),
   lastItemCount: integer("last_item_count").notNull().default(0),
   consecutiveFailures: integer("consecutive_failures").notNull().default(0),
+  nextCollectionAt: text("next_collection_at"),
+  archivedAt: text("archived_at"),
+  totalNewsCollected: integer("total_news_collected").notNull().default(0),
+  averageResponseMs: integer("average_response_ms").notNull().default(0),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at"),
 });
@@ -56,12 +69,31 @@ export const newsItems = pgTable("news_items", {
   classificationReason: text("classification_reason").notNull(),
   classificationMethod: text("classification_method").notNull().default("deterministic"),
   manuallyEditedAt: text("manually_edited_at"),
+  readAt: text("read_at"),
+  favorite: boolean("favorite").notNull().default(false),
+  archivedAt: text("archived_at"),
+  internalNotes: text("internal_notes").notNull().default(""),
+  manualOverride: boolean("manual_override").notNull().default(false),
+  collectionRunId: text("collection_run_id"),
+  updatedAt: text("updated_at"),
 }, (table) => [
   uniqueIndex("news_canonical_unique").on(table.canonicalUrl),
   uniqueIndex("news_external_source_unique").on(table.externalId, table.sourceId),
   uniqueIndex("news_title_hash_unique").on(table.titleHash),
   index("news_relevance_idx").on(table.relevanceScore, table.publishedAt),
+  index("news_status_idx").on(table.status, table.collectedAt),
+  index("news_collection_run_idx").on(table.collectionRunId),
 ]);
+
+export const newsItemHistory = pgTable("news_item_history", {
+  id: serial("id").primaryKey(),
+  newsItemId: integer("news_item_id").notNull().references(() => newsItems.id),
+  action: text("action").notNull(),
+  previousValue: text("previous_value"),
+  nextValue: text("next_value"),
+  metadata: text("metadata"),
+  createdAt: text("created_at").notNull(),
+}, (table) => [index("news_history_item_idx").on(table.newsItemId, table.createdAt)]);
 
 export const editorialBriefs = pgTable("editorial_briefs", {
   id: serial("id").primaryKey(),

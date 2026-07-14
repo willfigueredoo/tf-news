@@ -10,12 +10,16 @@ test("converte placeholders sem alterar sinais dentro de strings", () => {
   );
 });
 
-test("migration PostgreSQL é aditiva e não contém comandos destrutivos", async () => {
-  const migration = await readFile(
-    new URL("../drizzle/0000_bumpy_thunderbolt.sql", import.meta.url),
-    "utf8",
-  );
-  assert.match(migration, /CREATE TABLE "sources"/);
-  assert.match(migration, /ON CONFLICT \("feed_url"\) DO NOTHING/);
-  assert.doesNotMatch(migration, /^\s*(?:DROP|TRUNCATE|DELETE)\b/im);
+test("migrations PostgreSQL são aditivas e não contêm comandos destrutivos", async () => {
+  const migrations = await Promise.all([
+    readFile(new URL("../drizzle/0000_bumpy_thunderbolt.sql", import.meta.url), "utf8"),
+    readFile(new URL("../drizzle/0001_brief_microbe.sql", import.meta.url), "utf8"),
+  ]);
+  assert.match(migrations[0], /CREATE TABLE "sources"/);
+  assert.match(migrations[0], /ON CONFLICT \("feed_url"\) DO NOTHING/);
+  assert.match(migrations[1], /CREATE TABLE "news_item_history"/);
+  assert.match(migrations[1], /ALTER TABLE "sources" ADD COLUMN "priority"/);
+  for (const migration of migrations) {
+    assert.doesNotMatch(migration, /^\s*(?:DROP|TRUNCATE|DELETE|UPDATE)\b/im);
+  }
 });

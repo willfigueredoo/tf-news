@@ -49,6 +49,6 @@ Consulte `DEPLOYMENT.md` para a configuração da Vercel, variáveis, migration 
 
 - IA, WordPress e coleta cron reais dependem das respectivas variáveis no ambiente hospedado;
 - o teste automatizado do WordPress é mockado; um draft real só pode ser confirmado com credenciais autorizadas;
-- a migration PostgreSQL foi preparada, mas não deve ser aplicada em produção sem aprovação;
+- a migration inicial PostgreSQL já foi aplicada e validada em produção; migrations posteriores continuam exigindo aprovação explícita;
 - dados que já estejam em outro banco precisam de exportação e importação controladas; a migration estrutural não copia dados entre provedores;
 - Vinext e Nitro continuam em versões experimentais/beta e devem ser acompanhados em cada atualização.

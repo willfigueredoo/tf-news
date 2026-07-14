@@ -24,7 +24,7 @@ Também é possível instalar pelo terminal autenticado com `vercel install neon
 - Output Directory: sem override;
 - Node.js: 24.x.
 
-O cron chama `/api/cron/collect` diariamente às 11:00 UTC (08:00 em Brasília), compatível com o plano Hobby. O endpoint exige `Authorization: Bearer $CRON_SECRET`, usa lock no PostgreSQL e registra a execução.
+O cron chama `/api/cron/collect` às 11:00, 17:00 e 23:00 UTC (08:00, 14:00 e 20:00 em Brasília). Essa frequência requer o plano Pro atualmente ativo. No Hobby, mantenha apenas `0 11 * * *`. O endpoint exige `Authorization: Bearer $CRON_SECRET`, usa lock no PostgreSQL e registra a execução.
 
 ## Variáveis de ambiente
 
@@ -33,20 +33,7 @@ Banco:
 - `DATABASE_URL`: URL PostgreSQL com pooling e TLS;
 - `DATABASE_POOL_MAX=5`.
 
-IA editorial:
-
-- `AI_PROVIDER=openai`;
-- `AI_API_KEY`;
-- `AI_MODEL=gpt-5.6-luna`;
-- `AI_BASE_URL=https://api.openai.com/v1`;
-- `AI_TIMEOUT_MS=45000`;
-- `AI_MAX_RETRIES=2`;
-- `AI_DAILY_LIMIT_USD`;
-- `AI_DAILY_REQUEST_LIMIT`;
-- `AI_INPUT_COST_PER_1M=1`;
-- `AI_OUTPUT_COST_PER_1M=6`.
-
-O identificador `gpt-5.6-luna` foi validado na documentação oficial da OpenAI em 14 de julho de 2026, com suporte à Responses API e Structured Outputs. Revalide o catálogo e os preços antes de alterar o modelo ou as tarifas usadas no controle de custo.
+IA editorial (fora da Sprint de Monitoramento): mantenha todas as variáveis `AI_*` ausentes. Em uma sprint futura, valide o identificador oficial do modelo e os preços na documentação da OpenAI antes de configurar `AI_PROVIDER`, `AI_API_KEY`, `AI_MODEL`, limites e tarifas.
 
 WordPress:
 
@@ -62,7 +49,7 @@ Configure os segredos em Production e, somente se necessário, em Preview. Nunca
 
 ## Migration segura
 
-A migration inicial PostgreSQL é `drizzle/0000_bumpy_thunderbolt.sql`. Ela cria tabelas, índices, relacionamentos e cadastra duas fontes com `ON CONFLICT DO NOTHING`. Não contém comandos destrutivos.
+A migration inicial PostgreSQL é `drizzle/0000_bumpy_thunderbolt.sql`; ela já foi aplicada e validada no Neon de produção. A migration operacional do Monitoramento é `drizzle/0001_brief_microbe.sql`. Ambas contêm apenas criação aditiva de tabelas, colunas, índices e relacionamentos; a inicial também cadastra duas fontes com `ON CONFLICT DO NOTHING`. Nenhuma contém comandos destrutivos.
 
 Processo obrigatório:
 
