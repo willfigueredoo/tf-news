@@ -9,7 +9,7 @@ export async function POST(request: Request) {
   try {
     const input = collectInputSchema.parse(await request.json());
     const db = await getRuntimeDb();
-    const source = await db.prepare("SELECT id, name, feed_url, reliability_score FROM sources WHERE id = ? AND active = 1").bind(input.sourceId).first<SourceRow>();
+    const source = await db.prepare("SELECT id, name, feed_url, reliability_score FROM sources WHERE id = ? AND active = TRUE").bind(input.sourceId).first<SourceRow>();
     if (!source) return Response.json({ error: "Fonte não encontrada ou inativa." }, { status: 404 });
     return Response.json(await collectSource(db, source, getAiConfig()));
   } catch (error) {

@@ -1,6 +1,7 @@
 import { aiConfigured, runStructuredAi, type AiConfig } from "./ai.ts";
 import { appendTraceableSources, sanitizeWordPressHtml, validateArticleHtml } from "./article-html.ts";
 import { articlePayloadSchema, briefPayloadSchema, coherenceSchema, type ArticlePayload, type BriefPayload, type CoherencePayload } from "./operational-schemas.ts";
+import type { Database } from "../db/runtime.ts";
 
 export type EditorialNews = {
   id: number;
@@ -17,7 +18,7 @@ export type EditorialNews = {
   primaryIcp: string;
 };
 
-export async function evaluateCoherence(db: D1Database, config: AiConfig, news: EditorialNews[]): Promise<CoherencePayload> {
+export async function evaluateCoherence(db: Database, config: AiConfig, news: EditorialNews[]): Promise<CoherencePayload> {
   const deterministic = deterministicCoherence(news);
   if (news.length <= 1 || !aiConfigured(config)) return deterministic;
   try {
@@ -35,7 +36,7 @@ export async function evaluateCoherence(db: D1Database, config: AiConfig, news: 
   }
 }
 
-export async function generateBriefWithAi(db: D1Database, config: AiConfig, input: { news: EditorialNews[]; coherence: CoherencePayload; requestedIcp: string; objective: string; primaryKeyword: string; tone: string }): Promise<BriefPayload> {
+export async function generateBriefWithAi(db: Database, config: AiConfig, input: { news: EditorialNews[]; coherence: CoherencePayload; requestedIcp: string; objective: string; primaryKeyword: string; tone: string }): Promise<BriefPayload> {
   if (!aiConfigured(config)) throw new Error("Configure AI_PROVIDER, AI_API_KEY e AI_MODEL antes de gerar o briefing.");
   const response = await runStructuredAi({
     db, config, operation: "brief", schemaName: "tf_news_editorial_brief", schema: briefPayloadSchema,
@@ -49,7 +50,7 @@ export async function generateBriefWithAi(db: D1Database, config: AiConfig, inpu
   return briefPayloadSchema.parse({ ...response.data, confirmedFacts: facts, primaryKeyword: input.primaryKeyword || response.data.primaryKeyword });
 }
 
-export async function generateArticleWithAi(db: D1Database, config: AiConfig, input: { brief: BriefPayload; news: EditorialNews[]; objective: string; tone: string }): Promise<ArticlePayload> {
+export async function generateArticleWithAi(db: Database, config: AiConfig, input: { brief: BriefPayload; news: EditorialNews[]; objective: string; tone: string }): Promise<ArticlePayload> {
   if (!aiConfigured(config)) throw new Error("Configure AI_PROVIDER, AI_API_KEY e AI_MODEL antes de gerar o artigo.");
   const response = await runStructuredAi({
     db, config, operation: "article", schemaName: "tf_news_wordpress_article", schema: articlePayloadSchema,

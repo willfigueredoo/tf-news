@@ -1,44 +1,52 @@
 # Operação em produção
 
-O TF News mantém Vinext e gera dois artefatos independentes:
+O TF News mantém Vinext e gera o artefato Vercel pela Build Output API v3 em `.vercel/output/`.
 
-- `npm run build`: Cloudflare/Sites em `dist/`;
-- `npm run build:vercel`: Vinext + Nitro na Build Output API v3 em `.vercel/output/`.
+## Criar o PostgreSQL na Vercel
 
-## Vercel
+Use um provedor PostgreSQL do Marketplace. A opção recomendada para este projeto é Neon:
 
-Configuração esperada:
+1. abra o projeto `tf-news` na Vercel;
+2. acesse **Storage** → **Create Database** → **Neon**;
+3. crie ou conecte um projeto Neon e selecione Production, Preview e Development conforme sua política;
+4. confirme que a integração adicionou uma URL PostgreSQL com pooling;
+5. mapeie essa URL para `DATABASE_URL` se o nome fornecido pela integração for diferente;
+6. adicione `DATABASE_POOL_MAX=5`;
+7. faça `vercel env pull .env.local` apenas em uma máquina autorizada para obter o ambiente local.
+
+Também é possível instalar pelo terminal autenticado com `vercel install neon`. Não cole a URL do banco em comandos, commits ou tickets.
+
+## Configuração do projeto Vercel
 
 - Framework Preset: `Nitro`;
-- Install Command: `npm ci`;
+- Install Command: `npm ci --no-audit --no-fund`;
 - Build Command: `npm run build:vercel`;
 - Output Directory: sem override;
 - Node.js: 24.x.
 
-O `vercel.json` agenda `/api/cron/collect` diariamente às 11:00 UTC, correspondente a 08:00 em Brasília. Essa frequência permite deploy no plano Hobby. Para 08:00, 14:00 e 20:00, use o plano Pro e altere a expressão para `0 11,17,23 * * *`, ou configure um agendador externo autorizado. O endpoint exige `Authorization: Bearer $CRON_SECRET`, usa lock no D1 e registra a execução. Crons da Vercel só rodam no deployment de produção.
+O cron chama `/api/cron/collect` diariamente às 11:00 UTC (08:00 em Brasília), compatível com o plano Hobby. O endpoint exige `Authorization: Bearer $CRON_SECRET`, usa lock no PostgreSQL e registra a execução.
 
-## Variáveis obrigatórias
+## Variáveis de ambiente
 
-Banco D1 acessado pela Vercel:
+Banco:
 
-- `CLOUDFLARE_ACCOUNT_ID`;
-- `CLOUDFLARE_D1_DATABASE_ID`;
-- `CLOUDFLARE_API_TOKEN` com apenas D1 Read e D1 Write para o banco necessário.
+- `DATABASE_URL`: URL PostgreSQL com pooling e TLS;
+- `DATABASE_POOL_MAX=5`.
 
 IA editorial:
 
 - `AI_PROVIDER=openai`;
 - `AI_API_KEY`;
-- `AI_MODEL`;
+- `AI_MODEL=gpt-5.6-luna`;
 - `AI_BASE_URL=https://api.openai.com/v1`;
 - `AI_TIMEOUT_MS=45000`;
 - `AI_MAX_RETRIES=2`;
 - `AI_DAILY_LIMIT_USD`;
 - `AI_DAILY_REQUEST_LIMIT`;
-- `AI_INPUT_COST_PER_1M`;
-- `AI_OUTPUT_COST_PER_1M`.
+- `AI_INPUT_COST_PER_1M=1`;
+- `AI_OUTPUT_COST_PER_1M=6`.
 
-As duas tarifas por milhão devem corresponder ao modelo escolhido para que o custo estimado e o limite financeiro sejam corretos.
+O identificador `gpt-5.6-luna` foi validado na documentação oficial da OpenAI em 14 de julho de 2026, com suporte à Responses API e Structured Outputs. Revalide o catálogo e os preços antes de alterar o modelo ou as tarifas usadas no controle de custo.
 
 WordPress:
 
@@ -48,32 +56,61 @@ WordPress:
 
 Automação:
 
-- `CRON_SECRET`, longo, aleatório e sem quebras de linha.
+- `CRON_SECRET`: valor longo, aleatório e sem quebras de linha.
 
-Nenhuma variável sensível pode usar prefixo público (`NEXT_PUBLIC_` ou `VITE_`). Configure as mesmas variáveis no ambiente Production e, quando necessário, em Preview.
+Configure os segredos em Production e, somente se necessário, em Preview. Nunca use prefixos públicos.
 
-## Migration segura do D1
+## Migration segura
 
-O projeto usa Drizzle e migrations aditivas. A sprint operacional está em `drizzle/0001_chemical_the_stranger.sql`; ela adiciona colunas e tabelas, preserva registros existentes e cadastra duas fontes RSS públicas verificadas.
+A migration inicial PostgreSQL é `drizzle/0000_bumpy_thunderbolt.sql`. Ela cria tabelas, índices, relacionamentos e cadastra duas fontes com `ON CONFLICT DO NOTHING`. Não contém comandos destrutivos.
 
 Processo obrigatório:
 
-1. exporte um backup do D1;
-2. aplique a migration em um banco de staging;
-3. execute coleta, leitura, edição e publicação mockada;
-4. aplique em produção com `npx wrangler d1 migrations apply <DATABASE_ID> --remote --config wrangler.migrations.jsonc`;
-5. valide `/api/ready`, cadastre uma fonte e confirme leitura após novo deploy;
-6. só depois libere o deployment Vercel para tráfego.
+1. crie uma branch de banco ou banco de staging vazio;
+2. associe temporariamente `DATABASE_URL` a esse staging;
+3. execute `npm run db:migrate`;
+4. execute `npm run db:check`;
+5. valide coleta, leitura, edição e WordPress mockado;
+6. faça backup/exportação de qualquer banco anterior que contenha dados reais;
+7. importe esses dados por processo controlado antes do corte, preservando IDs e sequências;
+8. somente após aprovação explícita, aponte `DATABASE_URL` para produção e execute `npm run db:migrate` uma única vez;
+9. execute `npm run db:check` e valide `/api/ready`.
 
-Não use `drizzle-kit push`, `DROP`, reset ou recriação do banco em produção. O runtime não executa alterações destrutivas automaticamente.
+Não use `drizzle-kit push`, `DROP`, reset ou recriação do banco. O deploy da Vercel não executa migrations automaticamente.
 
-## Proteção de acesso
+## Testar leitura e escrita
 
-A política privada do Sites não acompanha a Vercel. Ative Deployment Protection antes de expor dados reais. As APIs atuais confiam nessa proteção perimetral; não publique o domínio sem ela.
+Com `DATABASE_URL` carregada no terminal autorizado:
 
-## Verificação
+```text
+npm run db:check
+```
 
-Antes de promover um commit:
+O comando abre uma transação, insere um log de diagnóstico, lê o registro e o remove antes de concluir. Depois do deploy, `/api/ready` confirma a consulta do runtime; cadastre uma fonte e recarregue o Monitoramento para validar persistência entre requisições.
+
+## Validar OpenAI real
+
+1. crie uma API key de projeto na OpenAI com orçamento e limites definidos;
+2. configure as variáveis `AI_*` na Vercel;
+3. faça novo deploy;
+4. abra `/api/ai/status` e confirme `configured: true`;
+5. selecione uma notícia real, gere briefing e artigo;
+6. confirme em Histórico/Logs que o provedor, modelo, tokens, latência e custo estimado foram registrados.
+
+Uma resposta determinística não comprova a integração real; briefing e artigo só contam como validados quando a chamada ao provedor termina com sucesso e gera log de uso.
+
+## Testar um draft real no WordPress
+
+1. no usuário editorial do WordPress, crie uma **Application Password** exclusiva;
+2. configure `WORDPRESS_BASE_URL`, `WORDPRESS_USERNAME` e `WORDPRESS_APPLICATION_PASSWORD` na Vercel;
+3. na aplicação, teste a conexão e carregue categorias/tags;
+4. gere, revise e salve um artigo;
+5. envie ao WordPress;
+6. confirme o ID, a URL de edição e o status `draft` no TF News;
+7. abra o rascunho no painel do WordPress e confirme que não foi publicado;
+8. tente reenviar o mesmo artigo e confirme que nenhum segundo post foi criado.
+
+## Verificação antes e depois do deploy
 
 ```text
 npm ci
@@ -84,4 +121,4 @@ npm run build
 npm run build:vercel
 ```
 
-Depois do deploy, confirme `/api/health`, `/api/ready`, `/api/ai/status`, um teste de feed, uma coleta manual e um draft WordPress. O teste WordPress real deve ser feito somente com um site autorizado e credenciais de Application Password.
+Depois do deploy, confirme `/api/health`, `/api/ready`, `/api/ai/status`, um teste de feed, uma coleta manual, persistência após novo deploy e um draft WordPress autorizado. Mantenha Deployment Protection enquanto as APIs não tiverem autenticação própria.

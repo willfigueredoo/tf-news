@@ -1,13 +1,22 @@
-import { integer, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import {
+  boolean,
+  doublePrecision,
+  index,
+  integer,
+  pgTable,
+  serial,
+  text,
+  uniqueIndex,
+} from "drizzle-orm/pg-core";
 
-export const sources = sqliteTable("sources", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+export const sources = pgTable("sources", {
+  id: serial("id").primaryKey(),
   name: text("name").notNull(),
   domain: text("domain").notNull(),
   feedUrl: text("feed_url").notNull().unique(),
   websiteUrl: text("website_url"),
   reliabilityScore: integer("reliability_score").notNull().default(75),
-  active: integer("active", { mode: "boolean" }).notNull().default(true),
+  active: boolean("active").notNull().default(true),
   lastCollectedAt: text("last_collected_at"),
   lastSuccessAt: text("last_success_at"),
   lastFailureAt: text("last_failure_at"),
@@ -21,8 +30,8 @@ export const sources = sqliteTable("sources", {
   updatedAt: text("updated_at"),
 });
 
-export const newsItems = sqliteTable("news_items", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+export const newsItems = pgTable("news_items", {
+  id: serial("id").primaryKey(),
   externalId: text("external_id").notNull(),
   title: text("title").notNull(),
   originalUrl: text("original_url").notNull(),
@@ -51,10 +60,11 @@ export const newsItems = sqliteTable("news_items", {
   uniqueIndex("news_canonical_unique").on(table.canonicalUrl),
   uniqueIndex("news_external_source_unique").on(table.externalId, table.sourceId),
   uniqueIndex("news_title_hash_unique").on(table.titleHash),
+  index("news_relevance_idx").on(table.relevanceScore, table.publishedAt),
 ]);
 
-export const editorialBriefs = sqliteTable("editorial_briefs", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+export const editorialBriefs = pgTable("editorial_briefs", {
+  id: serial("id").primaryKey(),
   title: text("title").notNull(),
   selectedIcp: text("selected_icp").notNull(),
   objective: text("objective").notNull(),
@@ -66,8 +76,8 @@ export const editorialBriefs = sqliteTable("editorial_briefs", {
   updatedAt: text("updated_at").notNull(),
 });
 
-export const articles = sqliteTable("articles", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+export const articles = pgTable("articles", {
+  id: serial("id").primaryKey(),
   briefId: integer("brief_id").notNull().references(() => editorialBriefs.id),
   title: text("title").notNull(),
   slug: text("slug").notNull().unique(),
@@ -81,13 +91,13 @@ export const articles = sqliteTable("articles", {
   tags: text("tags").notNull(),
   status: text("status").notNull().default("draft"),
   qualityScore: integer("quality_score").notNull().default(78),
-  factualConfidence: real("factual_confidence").notNull().default(.8),
+  factualConfidence: doublePrecision("factual_confidence").notNull().default(.8),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
 });
 
-export const wordpressPublications = sqliteTable("wordpress_publications", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+export const wordpressPublications = pgTable("wordpress_publications", {
+  id: serial("id").primaryKey(),
   articleId: integer("article_id").notNull().unique().references(() => articles.id),
   wordpressPostId: integer("wordpress_post_id").notNull(),
   wordpressUrl: text("wordpress_url"),
@@ -96,8 +106,8 @@ export const wordpressPublications = sqliteTable("wordpress_publications", {
   createdAt: text("created_at").notNull(),
 });
 
-export const jobLogs = sqliteTable("job_logs", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+export const jobLogs = pgTable("job_logs", {
+  id: serial("id").primaryKey(),
   jobType: text("job_type").notNull(),
   status: text("status").notNull(),
   startedAt: text("started_at").notNull(),
@@ -107,22 +117,22 @@ export const jobLogs = sqliteTable("job_logs", {
   metadata: text("metadata"),
 });
 
-export const aiUsageLogs = sqliteTable("ai_usage_logs", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+export const aiUsageLogs = pgTable("ai_usage_logs", {
+  id: serial("id").primaryKey(),
   operation: text("operation").notNull(),
   provider: text("provider").notNull(),
   model: text("model").notNull(),
   status: text("status").notNull(),
   inputTokens: integer("input_tokens").notNull().default(0),
   outputTokens: integer("output_tokens").notNull().default(0),
-  estimatedCostUsd: real("estimated_cost_usd").notNull().default(0),
+  estimatedCostUsd: doublePrecision("estimated_cost_usd").notNull().default(0),
   latencyMs: integer("latency_ms").notNull().default(0),
   requestId: text("request_id"),
   errorMessage: text("error_message"),
   createdAt: text("created_at").notNull(),
-});
+}, (table) => [index("ai_usage_created_idx").on(table.createdAt)]);
 
-export const jobLocks = sqliteTable("job_locks", {
+export const jobLocks = pgTable("job_locks", {
   name: text("name").primaryKey(),
   owner: text("owner").notNull(),
   lockedUntil: text("locked_until").notNull(),

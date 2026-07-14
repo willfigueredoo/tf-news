@@ -26,7 +26,7 @@ export async function PATCH(request: Request) {
     const now = new Date().toISOString();
     if (input.action === "setIcp") {
       if (!input.primaryIcp || !ICP_CATALOG.some((icp) => icp.name === input.primaryIcp)) return Response.json({ error: "ICP inválido." }, { status: 400 });
-      await db.prepare(`UPDATE news_items SET primary_icp = ?, icps = json_array(?), secondary_icps = '[]', classification_reason = classification_reason || ' Ajuste manual de ICP.', manually_edited_at = ? WHERE id IN (${placeholders})`).bind(input.primaryIcp, input.primaryIcp, now, ...input.newsIds).run();
+      await db.prepare(`UPDATE news_items SET primary_icp = ?, icps = ?, secondary_icps = '[]', classification_reason = classification_reason || ' Ajuste manual de ICP.', manually_edited_at = ? WHERE id IN (${placeholders})`).bind(input.primaryIcp, JSON.stringify([input.primaryIcp]), now, ...input.newsIds).run();
     } else {
       const status = input.action === "relevant" ? "relevant" : input.action === "discard" ? "discarded" : "new";
       await db.prepare(`UPDATE news_items SET status = ?, manually_edited_at = ? WHERE id IN (${placeholders})`).bind(status, now, ...input.newsIds).run();

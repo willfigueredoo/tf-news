@@ -1,4 +1,5 @@
 import { z, type ZodType } from "zod";
+import type { Database } from "../db/runtime.ts";
 
 export type AiConfig = {
   provider: string;
@@ -13,7 +14,7 @@ export type AiConfig = {
   outputCostPerMillion: number;
 };
 
-type AiDb = Pick<D1Database, "prepare">;
+type AiDb = Pick<Database, "prepare">;
 type FetchLike = typeof fetch;
 
 type ResponsesPayload = {

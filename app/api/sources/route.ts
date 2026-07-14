@@ -27,7 +27,7 @@ export async function POST(request: Request) {
     if (body.action === "test") return Response.json({ test });
     const db = await getRuntimeDb();
     const now = new Date().toISOString();
-    await db.prepare("INSERT INTO sources (name, domain, feed_url, website_url, reliability_score, last_status, last_http_status, last_item_count, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'tested', ?, ?, ?, ?) ON CONFLICT(feed_url) DO UPDATE SET name=excluded.name, website_url=excluded.website_url, reliability_score=excluded.reliability_score, active=1, last_status='tested', last_error=NULL, last_http_status=excluded.last_http_status, last_item_count=excluded.last_item_count, updated_at=excluded.updated_at")
+    await db.prepare("INSERT INTO sources (name, domain, feed_url, website_url, reliability_score, last_status, last_http_status, last_item_count, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'tested', ?, ?, ?, ?) ON CONFLICT(feed_url) DO UPDATE SET name=excluded.name, website_url=excluded.website_url, reliability_score=excluded.reliability_score, active=TRUE, last_status='tested', last_error=NULL, last_http_status=excluded.last_http_status, last_item_count=excluded.last_item_count, updated_at=excluded.updated_at")
       .bind(body.name, new URL(body.feedUrl).hostname, body.feedUrl, body.websiteUrl || null, body.reliabilityScore, test.httpStatus, test.itemCount, now, now).run();
     const result = await db.prepare("SELECT * FROM sources WHERE feed_url = ?").bind(body.feedUrl).first<SourceRow>();
     return Response.json({ source: result ? mapSource(result) : null, test }, { status: 201 });

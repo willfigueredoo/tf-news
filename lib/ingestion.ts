@@ -2,6 +2,7 @@ import { aiConfigured, runStructuredAi, type AiConfig } from "./ai.ts";
 import { canonicalizeUrl, classifyNews, isSafeHttpUrl, parseFeed, sha256, type Classification, type ParsedFeedItem } from "./editorial.ts";
 import { acquireJobLock, releaseJobLock } from "./jobs.ts";
 import { classificationBatchSchema } from "./operational-schemas.ts";
+import type { Database } from "../db/runtime.ts";
 
 type SourceRow = { id: number; name: string; feed_url: string; reliability_score: number };
 type Candidate = ParsedFeedItem & { canonicalUrl: string; titleHash: string; contentHash: string; deterministic: Classification };
@@ -56,7 +57,7 @@ export async function testFeed(feedUrl: string, fetchImpl?: typeof fetch) {
   };
 }
 
-export async function collectSource(db: D1Database, source: SourceRow, aiConfig: AiConfig, options: { fetchImpl?: typeof fetch; maxItems?: number } = {}) {
+export async function collectSource(db: Database, source: SourceRow, aiConfig: AiConfig, options: { fetchImpl?: typeof fetch; maxItems?: number } = {}) {
   const started = Date.now();
   const startedAt = new Date().toISOString();
   try {
@@ -102,12 +103,12 @@ export async function collectSource(db: D1Database, source: SourceRow, aiConfig:
   }
 }
 
-export async function collectAllSources(db: D1Database, aiConfig: AiConfig, options: { fetchImpl?: typeof fetch; maxItems?: number } = {}) {
+export async function collectAllSources(db: Database, aiConfig: AiConfig, options: { fetchImpl?: typeof fetch; maxItems?: number } = {}) {
   const owner = await acquireJobLock(db, "collect-all", 20 * 60);
   if (!owner) return { locked: true, results: [], successes: 0, failures: 0, created: 0 };
   const startedAt = new Date().toISOString();
   try {
-    const sourceResult = await db.prepare("SELECT id, name, feed_url, reliability_score FROM sources WHERE active = 1 ORDER BY id").all<SourceRow>();
+    const sourceResult = await db.prepare("SELECT id, name, feed_url, reliability_score FROM sources WHERE active = TRUE ORDER BY id").all<SourceRow>();
     const results: Array<Record<string, unknown>> = [];
     let successes = 0; let failures = 0; let created = 0;
     for (const source of sourceResult.results ?? []) {
@@ -127,7 +128,7 @@ export async function collectAllSources(db: D1Database, aiConfig: AiConfig, opti
   }
 }
 
-async function classifyBatchWithAi(db: D1Database, config: AiConfig, candidates: Candidate[]) {
+async function classifyBatchWithAi(db: Database, config: AiConfig, candidates: Candidate[]) {
   const result = new Map<string, Classification>();
   if (!candidates.length || !aiConfigured(config)) return result;
   try {

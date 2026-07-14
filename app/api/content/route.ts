@@ -1,4 +1,4 @@
-import { getRuntimeDb, rowsOf } from "../../../db/runtime";
+import { getRuntimeDb, rowsOf, type Database } from "../../../db/runtime";
 import { sanitizeWordPressHtml, slugify, validateArticleHtml } from "../../../lib/article-html";
 import { contentInputSchema } from "../../../lib/editorial";
 import { evaluateCoherence, generateArticleWithAi, generateBriefWithAi, type EditorialNews } from "../../../lib/editorial-ai";
@@ -44,7 +44,7 @@ export async function POST(request: Request) {
       }
       const payload = await generateBriefWithAi(db, config, { news, coherence, requestedIcp: input.icp, objective: input.objective, primaryKeyword: input.primaryKeyword, tone: input.tone });
       const now = new Date().toISOString();
-      const result = await db.prepare("INSERT INTO editorial_briefs (title, selected_icp, objective, primary_keyword, payload, news_ids, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 'draft', ?, ?)")
+      const result = await db.prepare("INSERT INTO editorial_briefs (title, selected_icp, objective, primary_keyword, payload, news_ids, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 'draft', ?, ?) RETURNING id")
         .bind(payload.suggestedTitle, payload.primaryIcp, input.objective, payload.primaryKeyword, JSON.stringify({ ...payload, coherence }), JSON.stringify(input.newsIds), now, now).run();
       return Response.json({ brief: toClientBrief(Number(result.meta.last_row_id), payload, coherence) }, { status: 201 });
     }
@@ -59,13 +59,13 @@ export async function POST(request: Request) {
     const article = await generateArticleWithAi(db, config, { brief: payload, news, objective: brief.objective, tone: input.tone });
     const slug = `${slugify(article.title)}-${Date.now().toString(36)}`;
     const now = new Date().toISOString();
-    const insert = await db.prepare("INSERT INTO articles (brief_id, title, slug, excerpt, content, meta_title, meta_description, primary_keyword, secondary_keywords, category, tags, status, quality_score, factual_confidence, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?)")
+    const insert = await db.prepare("INSERT INTO articles (brief_id, title, slug, excerpt, content, meta_title, meta_description, primary_keyword, secondary_keywords, category, tags, status, quality_score, factual_confidence, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?) RETURNING id")
       .bind(brief.id, article.title, slug, article.excerpt, article.contentHtml, article.metaTitle, article.metaDescription, brief.primary_keyword, JSON.stringify(article.secondaryKeywords), article.category, JSON.stringify(article.tags), article.qualityScore, article.factualConfidence, now, now).run();
     return Response.json({ article: { id: Number(insert.meta.last_row_id), briefId: brief.id, title: article.title, slug, excerpt: article.excerpt, content: article.contentHtml, primaryKeyword: brief.primary_keyword, status: "draft", qualityScore: article.qualityScore, factualConfidence: article.factualConfidence, createdAt: now, updatedAt: now } }, { status: 201 });
   } catch (error) { return fail(error, error instanceof SyntaxError ? 502 : 400); }
 }
 
-async function selectedNews(db: D1Database, ids: number[]): Promise<EditorialNews[]> {
+async function selectedNews(db: Database, ids: number[]): Promise<EditorialNews[]> {
   if (!ids.length) return [];
   const placeholders = ids.map(() => "?").join(",");
   const result = await db.prepare(`SELECT id, title, source_name, original_url, published_at, excerpt, content_text, region, logistics_impact, topics, icps, primary_icp FROM news_items WHERE status <> 'discarded' AND id IN (${placeholders}) ORDER BY relevance_score DESC`).bind(...ids).all<SelectedNewsRow>();

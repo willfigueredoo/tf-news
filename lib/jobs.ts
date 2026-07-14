@@ -1,4 +1,6 @@
-export async function acquireJobLock(db: D1Database, name: string, ttlSeconds: number) {
+import type { Database } from "../db/runtime.ts";
+
+export async function acquireJobLock(db: Database, name: string, ttlSeconds: number) {
   const owner = crypto.randomUUID();
   const now = new Date();
   const lockedUntil = new Date(now.getTime() + ttlSeconds * 1000).toISOString();
@@ -7,6 +9,6 @@ export async function acquireJobLock(db: D1Database, name: string, ttlSeconds: n
   return result.meta.changes > 0 ? owner : null;
 }
 
-export async function releaseJobLock(db: D1Database, name: string, owner: string) {
+export async function releaseJobLock(db: Database, name: string, owner: string) {
   await db.prepare("DELETE FROM job_locks WHERE name = ? AND owner = ?").bind(name, owner).run();
 }

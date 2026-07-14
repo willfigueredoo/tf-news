@@ -1,26 +1,151 @@
-import { env } from "cloudflare:workers";
+import { getSqlClient } from "./index.ts";
 
-let ready = false;
+export type QueryMeta = {
+  changes: number;
+  last_row_id?: number;
+};
 
-export async function getRuntimeDb() {
-  const db = env.DB;
-  if (!db) throw new Error("Banco de dados indisponível.");
-  if (!ready) {
-    await db.batch([
-      db.prepare("CREATE TABLE IF NOT EXISTS sources (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, domain TEXT NOT NULL, feed_url TEXT NOT NULL UNIQUE, website_url TEXT, reliability_score INTEGER NOT NULL DEFAULT 75, active INTEGER NOT NULL DEFAULT 1, last_collected_at TEXT, last_success_at TEXT, last_failure_at TEXT, last_error TEXT, last_status TEXT NOT NULL DEFAULT 'never', last_duration_ms INTEGER, last_http_status INTEGER, last_item_count INTEGER NOT NULL DEFAULT 0, consecutive_failures INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT)"),
-      db.prepare("CREATE TABLE IF NOT EXISTS news_items (id INTEGER PRIMARY KEY AUTOINCREMENT, external_id TEXT NOT NULL, title TEXT NOT NULL, original_url TEXT NOT NULL, canonical_url TEXT NOT NULL UNIQUE, source_id INTEGER NOT NULL, source_name TEXT NOT NULL, author TEXT, published_at TEXT NOT NULL, collected_at TEXT NOT NULL, excerpt TEXT NOT NULL, content_text TEXT NOT NULL DEFAULT '', content_hash TEXT NOT NULL, title_hash TEXT NOT NULL UNIQUE, region TEXT NOT NULL, logistics_impact TEXT NOT NULL, relevance_score INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'new', topics TEXT NOT NULL, icps TEXT NOT NULL, primary_icp TEXT NOT NULL DEFAULT 'Mercado e Logística', secondary_icps TEXT NOT NULL DEFAULT '[]', classification_reason TEXT NOT NULL, classification_method TEXT NOT NULL DEFAULT 'deterministic', manually_edited_at TEXT, UNIQUE(external_id, source_id), FOREIGN KEY(source_id) REFERENCES sources(id))"),
-      db.prepare("CREATE INDEX IF NOT EXISTS news_relevance_idx ON news_items(relevance_score DESC, published_at DESC)"),
-      db.prepare("CREATE TABLE IF NOT EXISTS editorial_briefs (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, selected_icp TEXT NOT NULL, objective TEXT NOT NULL, primary_keyword TEXT NOT NULL, payload TEXT NOT NULL, news_ids TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'draft', created_at TEXT NOT NULL, updated_at TEXT NOT NULL)"),
-      db.prepare("CREATE TABLE IF NOT EXISTS articles (id INTEGER PRIMARY KEY AUTOINCREMENT, brief_id INTEGER NOT NULL, title TEXT NOT NULL, slug TEXT NOT NULL UNIQUE, excerpt TEXT NOT NULL, content TEXT NOT NULL, meta_title TEXT NOT NULL, meta_description TEXT NOT NULL, primary_keyword TEXT NOT NULL, secondary_keywords TEXT NOT NULL, category TEXT NOT NULL, tags TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'draft', quality_score INTEGER NOT NULL DEFAULT 78, factual_confidence REAL NOT NULL DEFAULT .8, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, FOREIGN KEY(brief_id) REFERENCES editorial_briefs(id))"),
-      db.prepare("CREATE TABLE IF NOT EXISTS wordpress_publications (id INTEGER PRIMARY KEY AUTOINCREMENT, article_id INTEGER NOT NULL UNIQUE, wordpress_post_id INTEGER NOT NULL, wordpress_url TEXT, wordpress_edit_url TEXT, wordpress_status TEXT NOT NULL, created_at TEXT NOT NULL, FOREIGN KEY(article_id) REFERENCES articles(id))"),
-      db.prepare("CREATE TABLE IF NOT EXISTS job_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, job_type TEXT NOT NULL, status TEXT NOT NULL, started_at TEXT NOT NULL, finished_at TEXT, processed_items INTEGER NOT NULL DEFAULT 0, error_message TEXT, metadata TEXT)"),
-      db.prepare("CREATE TABLE IF NOT EXISTS ai_usage_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, operation TEXT NOT NULL, provider TEXT NOT NULL, model TEXT NOT NULL, status TEXT NOT NULL, input_tokens INTEGER NOT NULL DEFAULT 0, output_tokens INTEGER NOT NULL DEFAULT 0, estimated_cost_usd REAL NOT NULL DEFAULT 0, latency_ms INTEGER NOT NULL DEFAULT 0, request_id TEXT, error_message TEXT, created_at TEXT NOT NULL)"),
-      db.prepare("CREATE INDEX IF NOT EXISTS ai_usage_created_idx ON ai_usage_logs(created_at DESC)"),
-      db.prepare("CREATE TABLE IF NOT EXISTS job_locks (name TEXT PRIMARY KEY NOT NULL, owner TEXT NOT NULL, locked_until TEXT NOT NULL, updated_at TEXT NOT NULL)"),
-    ]);
-    ready = true;
+export type QueryResult<T = Record<string, unknown>> = {
+  results: T[];
+  meta: QueryMeta;
+};
+
+export interface DatabaseStatement {
+  bind(...values: unknown[]): DatabaseStatement;
+  all<T = Record<string, unknown>>(): Promise<QueryResult<T>>;
+  first<T = Record<string, unknown>>(column?: string): Promise<T | null>;
+  run(): Promise<QueryResult>;
+}
+
+export interface Database {
+  prepare(query: string): DatabaseStatement;
+  batch(statements: DatabaseStatement[]): Promise<QueryResult[]>;
+}
+
+type SqlExecutor = {
+  unsafe(query: string, parameters?: readonly unknown[]): Promise<Array<Record<string, unknown>> & { count?: number }>;
+};
+
+function normalizeValue(value: unknown) {
+  if (value === undefined) return null;
+  if (value instanceof Date) return value.toISOString();
+  return value;
+}
+
+export function toPostgresPlaceholders(query: string) {
+  let parameter = 0;
+  let quote: "'" | '"' | null = null;
+  let result = "";
+
+  for (let index = 0; index < query.length; index += 1) {
+    const character = query[index];
+    if (quote) {
+      result += character;
+      if (character === quote) {
+        if (query[index + 1] === quote) {
+          result += query[index + 1];
+          index += 1;
+        } else {
+          quote = null;
+        }
+      }
+      continue;
+    }
+
+    if (character === "'" || character === '"') {
+      quote = character;
+      result += character;
+    } else if (character === "?") {
+      parameter += 1;
+      result += `$${parameter}`;
+    } else {
+      result += character;
+    }
   }
-  return db;
+
+  return result;
+}
+
+class PostgresStatement implements DatabaseStatement {
+  private values: unknown[] = [];
+  private readonly database: PostgresDatabase;
+  private readonly query: string;
+
+  constructor(database: PostgresDatabase, query: string) {
+    this.database = database;
+    this.query = query;
+  }
+
+  bind(...values: unknown[]) {
+    this.values = values.map(normalizeValue);
+    return this;
+  }
+
+  private async execute(executor: SqlExecutor) {
+    return executor.unsafe(toPostgresPlaceholders(this.query), this.values);
+  }
+
+  private meta(rows: Array<Record<string, unknown>> & { count?: number }): QueryMeta {
+    const firstId = rows[0]?.id;
+    return {
+      changes: typeof rows.count === "number" ? rows.count : rows.length,
+      ...(typeof firstId === "number" ? { last_row_id: firstId } : {}),
+    };
+  }
+
+  async all<T = Record<string, unknown>>() {
+    const rows = await this.execute(this.database.sql);
+    return { results: Array.from(rows) as T[], meta: this.meta(rows) };
+  }
+
+  async first<T = Record<string, unknown>>(column?: string) {
+    const rows = await this.execute(this.database.sql);
+    const row = rows[0];
+    if (!row) return null;
+    return (column ? row[column] : row) as T;
+  }
+
+  async run() {
+    const rows = await this.execute(this.database.sql);
+    return { results: Array.from(rows), meta: this.meta(rows) };
+  }
+
+  async runWith(executor: SqlExecutor) {
+    const rows = await this.execute(executor);
+    return { results: Array.from(rows), meta: this.meta(rows) };
+  }
+}
+
+class PostgresDatabase implements Database {
+  readonly sql: ReturnType<typeof getSqlClient>;
+
+  constructor(sql: ReturnType<typeof getSqlClient>) {
+    this.sql = sql;
+  }
+
+  prepare(query: string) {
+    return new PostgresStatement(this, query);
+  }
+
+  async batch(statements: DatabaseStatement[]) {
+    return this.sql.begin(async (transaction) => {
+      const results: QueryResult[] = [];
+      for (const statement of statements) {
+        if (!(statement instanceof PostgresStatement)) {
+          throw new Error("Statement incompatível com o adaptador PostgreSQL.");
+        }
+        results.push(await statement.runWith(transaction));
+      }
+      return results;
+    });
+  }
+}
+
+let database: PostgresDatabase | null = null;
+
+export async function getRuntimeDb(): Promise<Database> {
+  database ??= new PostgresDatabase(getSqlClient());
+  return database;
 }
 
 export function rowsOf<T>(result: { results?: T[] }) {

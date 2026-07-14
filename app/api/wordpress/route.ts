@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { getRuntimeDb } from "../../../db/runtime";
+import { getRuntimeDb, type Database } from "../../../db/runtime";
 import { acquireJobLock, releaseJobLock } from "../../../lib/jobs";
 import { getWordPressConfig } from "../../../lib/runtime-config";
 import { createWordPressDraft, listWordPressTaxonomies, testWordPressConnection, wordPressConfigured } from "../../../lib/wordpress";
@@ -19,7 +19,7 @@ export async function GET() {
 
 export async function POST(request: Request) {
   const startedAt = new Date().toISOString();
-  let db: D1Database | null = null;
+  let db: Database | null = null;
   let lockOwner: string | null = null;
   let lockName = "";
   try {
