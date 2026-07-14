@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 test("mantém a experiência principal e remove o starter", async () => {
-  const [page, app, layout, css, packageJson, viteConfig, vercelConfig, vercelOutputScript] = await Promise.all([
+  const [page, app, layout, css, packageJson, viteConfig, vercelConfig, vercelOutputScript, readyRoute] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/tf-news-app.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
@@ -12,6 +12,7 @@ test("mantém a experiência principal e remove o starter", async () => {
     readFile(new URL("../vite.config.ts", import.meta.url), "utf8"),
     readFile(new URL("../vercel.json", import.meta.url), "utf8"),
     readFile(new URL("../scripts/ensure-vercel-output.mjs", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/ready/route.ts", import.meta.url), "utf8"),
   ]);
   assert.match(page, /TFNewsApp/);
   assert.match(app, /Monitoramento/);
@@ -39,6 +40,8 @@ test("mantém a experiência principal e remove o starter", async () => {
   assert.match(vercelOutputScript, /outputConfig\.crons/);
   assert.doesNotMatch(vercelOutputScript, /outputConfig\.crons\s*=/);
   assert.match(vercelOutputScript, /evitar duplica/);
+  assert.match(readyRoute, /to_regclass/);
+  assert.match(readyRoute, /schema_pending/);
   assert.doesNotMatch(vercelConfig, /\.next/);
   assert.doesNotMatch(`${page}${app}${layout}${packageJson}`, /codex-preview|Your site is taking shape|react-loading-skeleton/);
 });
