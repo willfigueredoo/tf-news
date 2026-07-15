@@ -119,36 +119,71 @@ test("cancela a chamada com AbortController no timeout interno e registra a falh
     user: "Usuário",
     fetchImpl,
     phaseLogger: () => {},
-  }), /Timeout interno da IA após 20 ms/);
+  }), /Timeout interno da IA após \d+ ms/);
   assert.equal(aborted, true);
   assert.ok(queries.some((query) => query.includes("ai_usage_logs")));
 });
 
 test("não persiste Kit parcial quando a geração falha", async () => {
   const queries = [];
+  let requests = 0;
   const db = fakeAiDb(queries);
   const decision = scoreEditorialOpportunity(NEWS, NOW);
   await assert.rejects(createEditorialKit(db, aiConfig(), decision, {
     now: NOW,
-    fetchImpl: async () => new Response(JSON.stringify({ error: { message: "falha controlada" } }), { status: 503, headers: { "Content-Type": "application/json" } }),
+    fetchImpl: async () => {
+      requests += 1;
+      return new Response(JSON.stringify({ error: { message: "falha controlada" } }), { status: 503, headers: { "Content-Type": "application/json" } });
+    },
     phaseLogger: () => {},
+    delayImpl: async () => assert.fail("não deve aguardar ou repetir erro sem alta demanda"),
   }), /falha controlada/);
+  assert.equal(requests, 1);
   assert.equal(queries.some((query) => query.includes("INSERT INTO editorial_kits")), false);
 });
 
-test("registra as fases e persiste somente depois da validação Zod", async () => {
+test("aguarda 5s e 10s em alta demanda, conclui na terceira tentativa e só então persiste", async () => {
   const queries = [];
   const phases = [];
+  const delays = [];
+  let requests = 0;
   const db = fakeAiDb(queries);
   const decision = scoreEditorialOpportunity(NEWS, NOW);
   const kit = await createEditorialKit(db, aiConfig({ model: "gemini-3.5-flash" }), decision, {
     now: NOW,
     phaseLogger: (entry) => phases.push(entry),
-    fetchImpl: async () => new Response(JSON.stringify({ responseId: "minimal-kit", candidates: [{ content: { parts: [{ text: JSON.stringify(minimalPayload()) }] } }], usageMetadata: { promptTokenCount: 200, candidatesTokenCount: 900 } }), { status: 200, headers: { "Content-Type": "application/json" } }),
+    delayImpl: async (ms) => { delays.push(ms); },
+    fetchImpl: async () => {
+      requests += 1;
+      if (requests < 3) return new Response(JSON.stringify({ error: { message: "This model is currently experiencing high demand." } }), { status: 503, headers: { "Content-Type": "application/json" } });
+      return new Response(JSON.stringify({ responseId: "minimal-kit", candidates: [{ content: { parts: [{ text: JSON.stringify(minimalPayload()) }] } }], usageMetadata: { promptTokenCount: 200, candidatesTokenCount: 900 } }), { status: 200, headers: { "Content-Type": "application/json" } });
+    },
   });
   assert.equal(kit.id, 123);
-  assert.deepEqual(phases.map((entry) => entry.phase), ["request_start", "provider_response", "zod_validation_start", "zod_validation_end", "persistence_start", "persistence_end"]);
+  assert.equal(requests, 3);
+  assert.deepEqual(delays, [5_000, 10_000]);
+  assert.deepEqual(phases.map((entry) => entry.phase), ["request_start", "provider_response", "retry_wait", "request_start", "provider_response", "retry_wait", "request_start", "provider_response", "zod_validation_start", "zod_validation_end", "persistence_start", "persistence_end"]);
   assert.ok(queries.some((query) => query.includes("INSERT INTO editorial_kits")));
+});
+
+test("encerra após a terceira resposta de alta demanda sem persistência parcial", async () => {
+  const queries = [];
+  const delays = [];
+  let requests = 0;
+  const db = fakeAiDb(queries);
+  const decision = scoreEditorialOpportunity(NEWS, NOW);
+  await assert.rejects(createEditorialKit(db, aiConfig({ model: "gemini-3.5-flash" }), decision, {
+    now: NOW,
+    phaseLogger: () => {},
+    delayImpl: async (ms) => { delays.push(ms); },
+    fetchImpl: async () => {
+      requests += 1;
+      return new Response(JSON.stringify({ error: { message: "This model is currently experiencing high demand." } }), { status: 429, headers: { "Content-Type": "application/json" } });
+    },
+  }), /high demand/);
+  assert.equal(requests, 3);
+  assert.deepEqual(delays, [5_000, 10_000]);
+  assert.equal(queries.some((query) => query.includes("INSERT INTO editorial_kits")), false);
 });
 
 test("normaliza kits antigos para leitura sem alterar os dados persistidos", () => {

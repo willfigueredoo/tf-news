@@ -48,7 +48,7 @@ AI_INPUT_COST_PER_1M=<tarifa vigente>
 AI_OUTPUT_COST_PER_1M=<tarifa vigente>
 ```
 
-Não exponha `GEMINI_API_KEY` ao cliente. A aplicação envia a chave no header `x-goog-api-key`, valida a resposta com Zod e só chama o Gemini ao clicar em “Gerar Kit Editorial”. O Kit V1 gera somente Blog SEO (500–700 palavras) e WhatsApp Comercial (400–700 caracteres), limita a saída a 1.800 tokens, envia `generationConfig.thinkingConfig.thinkingLevel: "minimal"`, não habilita ferramentas ou grounding, não repete a chamada e usa `AbortController` com teto efetivo de 54 segundos, abaixo dos 60 segundos da função Vercel. Confirme tarifas vigentes antes de preencher os campos de custo.
+Não exponha `GEMINI_API_KEY` ao cliente. A aplicação envia a chave no header `x-goog-api-key`, valida a resposta com Zod e só chama o Gemini ao clicar em “Gerar Kit Editorial”. O Kit V1 gera somente Blog SEO (500–700 palavras) e WhatsApp Comercial (400–700 caracteres), limita a saída a 1.800 tokens, envia `generationConfig.thinkingConfig.thinkingLevel: "minimal"`, não habilita ferramentas ou grounding e usa `AbortController` com teto total efetivo de 54 segundos, abaixo dos 60 segundos da função Vercel. Somente `429` ou mensagem explícita de alta demanda ativam retry: 5 segundos antes da segunda tentativa e 10 segundos antes da terceira e última. Timeout, validação e outros erros não são repetidos. Confirme tarifas vigentes antes de preencher os campos de custo.
 
 WordPress:
 

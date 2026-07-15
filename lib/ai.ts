@@ -16,9 +16,10 @@ export type AiConfig = {
 
 type AiDb = Pick<Database, "prepare">;
 type FetchLike = typeof fetch;
-export type AiPhase = "request_start" | "provider_response" | "zod_validation_start" | "zod_validation_end" | "persistence_start" | "persistence_end";
-export type AiPhaseLog = { phase: AiPhase; operation: string; provider: string; model: string; elapsedMs: number; attempt?: number; status?: "success" | "failed" };
+export type AiPhase = "request_start" | "provider_response" | "retry_wait" | "zod_validation_start" | "zod_validation_end" | "persistence_start" | "persistence_end";
+export type AiPhaseLog = { phase: AiPhase; operation: string; provider: string; model: string; elapsedMs: number; attempt?: number; delayMs?: number; status?: "success" | "failed" };
 export type AiPhaseLogger = (entry: AiPhaseLog) => void;
+type RetryPolicy = "default" | "high-demand";
 type ProviderPayload = {
   id?: string;
   responseId?: string;
@@ -45,6 +46,9 @@ export async function runStructuredAi<T>(options: {
   maxOutputTokens?: number;
   fetchImpl?: FetchLike;
   phaseLogger?: AiPhaseLogger;
+  retryPolicy?: RetryPolicy;
+  retryDelaysMs?: number[];
+  delayImpl?: (ms: number) => Promise<void>;
 }): Promise<{ data: T; usage: { inputTokens: number; outputTokens: number; estimatedCostUsd: number }; requestId: string | null }> {
   const { db, config, operation, schemaName, schema, system, user } = options;
   if (!aiConfigured(config)) throw new Error("A integração de IA ainda não está configurada.");
@@ -52,6 +56,8 @@ export async function runStructuredAi<T>(options: {
 
   const fetchImpl = options.fetchImpl ?? fetch;
   const phaseLogger = options.phaseLogger ?? logAiPhase;
+  const retryPolicy = options.retryPolicy ?? "default";
+  const delayImpl = options.delayImpl ?? delay;
   const started = Date.now();
   let lastError = "Falha desconhecida na IA.";
   for (let attempt = 0; attempt <= config.maxRetries; attempt += 1) {
@@ -59,13 +65,16 @@ export async function runStructuredAi<T>(options: {
       const jsonSchema = normalizeProviderSchema(z.toJSONSchema(schema, { target: "draft-7" }) as Record<string, unknown>);
       delete jsonSchema.$schema;
       phaseLogger({ phase: "request_start", operation, provider: config.provider, model: config.model, elapsedMs: Date.now() - started, attempt: attempt + 1 });
-      const response = await requestProvider(fetchImpl, config, { schemaName, jsonSchema, system, user, maxOutputTokens: options.maxOutputTokens ?? 1800 });
+      const remainingTimeoutMs = Math.max(1, config.timeoutMs - (Date.now() - started));
+      const response = await requestProvider(fetchImpl, { ...config, timeoutMs: remainingTimeoutMs }, { schemaName, jsonSchema, system, user, maxOutputTokens: options.maxOutputTokens ?? 1800 });
       phaseLogger({ phase: "provider_response", operation, provider: config.provider, model: config.model, elapsedMs: Date.now() - started, attempt: attempt + 1 });
       const payload = await safeJson(response);
       if (!response.ok) {
         lastError = payload.error?.message || `A IA respondeu com status ${response.status}.`;
-        if (attempt < config.maxRetries && retryable(response.status)) {
-          await delay(250 * 2 ** attempt);
+        const retryDelay = responseRetryDelay(retryPolicy, response.status, lastError, attempt, config.maxRetries, options.retryDelaysMs);
+        if (retryDelay !== null && (Date.now() - started) + retryDelay < config.timeoutMs) {
+          phaseLogger({ phase: "retry_wait", operation, provider: config.provider, model: config.model, elapsedMs: Date.now() - started, attempt: attempt + 1, delayMs: retryDelay });
+          await delayImpl(retryDelay);
           continue;
         }
         throw new Error(lastError);
@@ -91,8 +100,8 @@ export async function runStructuredAi<T>(options: {
       return { data, usage: { inputTokens, outputTokens, estimatedCostUsd }, requestId };
     } catch (error) {
       lastError = error instanceof Error ? error.message : "Falha desconhecida na IA.";
-      if (attempt < config.maxRetries && /timeout|fetch|network|aborted/i.test(lastError)) {
-        await delay(250 * 2 ** attempt);
+      if (retryPolicy === "default" && attempt < config.maxRetries && /timeout|fetch|network|aborted/i.test(lastError)) {
+        await delayImpl(250 * 2 ** attempt);
         continue;
       }
       await logUsage(db, { operation, config, status: "failed", started, inputTokens: 0, outputTokens: 0, estimatedCostUsd: 0, requestId: null, error: lastError });
@@ -184,6 +193,15 @@ async function safeJson(response: Response): Promise<ProviderPayload> {
 
 function retryable(status: number) { return [408, 409, 429, 500, 502, 503, 504].includes(status); }
 function delay(ms: number) { return new Promise((resolve) => setTimeout(resolve, ms)); }
+
+function responseRetryDelay(policy: RetryPolicy, status: number, message: string, attempt: number, maxRetries: number, configuredDelays?: number[]) {
+  if (attempt >= maxRetries) return null;
+  if (policy === "high-demand") {
+    if (status !== 429 && !/high demand/i.test(message)) return null;
+    return configuredDelays?.[attempt] ?? [5_000, 10_000][attempt] ?? 10_000;
+  }
+  return retryable(status) ? 250 * 2 ** attempt : null;
+}
 
 function normalizeProviderSchema(value: unknown): Record<string, unknown> {
   if (Array.isArray(value)) return value.map((item) => normalizeProviderSchema(item)) as unknown as Record<string, unknown>;

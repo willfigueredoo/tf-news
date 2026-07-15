@@ -7,7 +7,7 @@ import type { EditorialDecision } from "./editorial-intelligence.ts";
 export const EDITORIAL_KIT_TIMEOUT_MS = 54_000;
 export const EDITORIAL_KIT_MAX_OUTPUT_TOKENS = 1_800;
 
-type GenerationOptions = { fetchImpl?: typeof fetch; now?: Date; phaseLogger?: AiPhaseLogger };
+type GenerationOptions = { fetchImpl?: typeof fetch; now?: Date; phaseLogger?: AiPhaseLogger; delayImpl?: (ms: number) => Promise<void> };
 type CompatibilityContext = {
   newsId: number;
   title: string;
@@ -54,7 +54,7 @@ export async function generateEditorialKit(db: Database, config: AiConfig, decis
     config: {
       ...config,
       timeoutMs: EDITORIAL_KIT_TIMEOUT_MS,
-      maxRetries: 0,
+      maxRetries: 2,
     },
     operation: "editorial-kit",
     schemaName: "tf_news_editorial_kit_minimal_v1",
@@ -91,6 +91,9 @@ export async function generateEditorialKit(db: Database, config: AiConfig, decis
     maxOutputTokens: EDITORIAL_KIT_MAX_OUTPUT_TOKENS,
     fetchImpl: options.fetchImpl,
     phaseLogger: options.phaseLogger,
+    retryPolicy: "high-demand",
+    retryDelaysMs: [5_000, 10_000],
+    delayImpl: options.delayImpl,
   });
 
   const sourceIsTraceable = response.data.blog.sources.some((source) => source.url === decision.originalUrl);
