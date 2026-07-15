@@ -5,7 +5,7 @@ import { runStructuredAi } from "../lib/ai.ts";
 import { appendTraceableSources, sanitizeWordPressHtml, validateArticleHtml } from "../lib/article-html.ts";
 import { deterministicCoherence } from "../lib/editorial-ai.ts";
 import { collectSource, testFeed } from "../lib/ingestion.ts";
-import { createWordPressDraft, listWordPressTaxonomies } from "../lib/wordpress.ts";
+import { createWordPressDraft, listWordPressTaxonomies, testWordPressConnection } from "../lib/wordpress.ts";
 
 const RSS = `<?xml version="1.0"?><rss><channel><item><title>Safra recorde amplia demanda por transporte</title><link>https://news.example.com/safra?utm_source=rss</link><guid>item-123</guid><description>Conab estima 360 milhões de toneladas e maior fluxo nos portos.</description><content:encoded><![CDATA[<p>A produção cresce e exige planejamento de armazenagem, rodovias e exportação.</p>]]></content:encoded><pubDate>Tue, 14 Jul 2026 12:00:00 GMT</pubDate></item></channel></rss>`;
 
@@ -76,6 +76,21 @@ test("WordPress lista taxonomias, cria somente draft e recupera duplicado pelo s
   assert.equal(created.postId, 42);
   const duplicate = await createWordPressDraft(config, { title: "Título", slug: "titulo", excerpt: "Resumo", content: "<p>Conteúdo</p>" }, async () => Response.json([{ id: 42, status: "draft", link: "https://cms.example.com/?p=42" }]));
   assert.equal(duplicate.existed, true);
+});
+
+test("WordPress expõe somente identidade e permissões necessárias para drafts", async () => {
+  const config = { baseUrl: "https://cms.example.com", username: "editor", password: "application-password" };
+  const result = await testWordPressConnection(config, async () => Response.json({
+    id: 7,
+    name: "Equipe Editorial",
+    roles: ["editor"],
+    capabilities: { edit_posts: true, publish_posts: true, manage_categories: true },
+  }));
+  assert.equal(result.connected, true);
+  assert.equal(result.canCreateDrafts, true);
+  assert.deepEqual(result.roles, ["editor"]);
+  assert.equal(result.permissions.editPosts, true);
+  assert.equal("password" in result, false);
 });
 
 class FakeStatement {

@@ -10,8 +10,22 @@ export function wordPressConfigured(config: WordPressConfig) {
 export async function testWordPressConnection(config: WordPressConfig, fetchImpl: FetchLike = fetch) {
   validateConfig(config);
   const response = await wpFetch(config, "/wp-json/wp/v2/users/me?context=edit", { method: "GET" }, fetchImpl);
-  const profile = await response.json() as { id?: number; name?: string; slug?: string };
-  return { connected: true, userId: profile.id ?? null, user: profile.name || profile.slug || config.username };
+  const profile = await response.json() as { id?: number; name?: string; slug?: string; roles?: string[]; capabilities?: Record<string, boolean> };
+  const permissions = {
+    editPosts: Boolean(profile.capabilities?.edit_posts),
+    createPosts: Boolean(profile.capabilities?.create_posts || profile.capabilities?.edit_posts),
+    publishPosts: Boolean(profile.capabilities?.publish_posts),
+    editOthersPosts: Boolean(profile.capabilities?.edit_others_posts),
+    manageCategories: Boolean(profile.capabilities?.manage_categories),
+  };
+  return {
+    connected: true,
+    userId: profile.id ?? null,
+    user: profile.name || profile.slug || config.username,
+    roles: Array.isArray(profile.roles) ? profile.roles.map(String) : [],
+    permissions,
+    canCreateDrafts: permissions.createPosts,
+  };
 }
 
 export async function listWordPressTaxonomies(config: WordPressConfig, fetchImpl: FetchLike = fetch) {
