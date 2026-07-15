@@ -2,9 +2,9 @@
 
 Plataforma interna de monitoramento de mercado e inteligência editorial da TransFAST.
 
-## Fluxo operacional
+## TF News V2
 
-RSS/Atom real → coleta → normalização → deduplicação → classificação híbrida → Monitoramento → coerência editorial → briefing por IA → artigo HTML → revisão → draft WordPress → histórico e logs.
+RSS/Atom real → coleta → classificação → decisão editorial → Notícia do Dia → Kit Editorial multicanal → Biblioteca. A IA só é chamada quando um usuário solicita o kit; o ranking, Radar e Insights funcionam por regras transparentes sobre dados persistidos. WordPress permanece uma saída opcional.
 
 ## Persistência
 
@@ -48,7 +48,9 @@ Consulte `DEPLOYMENT.md` para a configuração da Vercel, variáveis, migration 
 ## Limites reais
 
 - IA, WordPress e coleta cron reais dependem das respectivas variáveis no ambiente hospedado;
+- o provedor editorial atual é Gemini; `gemini-2.5-flash` foi validado na documentação oficial como modelo estável com saída estruturada;
+- a migration aditiva `0002_overjoyed_gideon.sql` da Biblioteca Editorial foi aplicada e validada no Neon de produção em 15/07/2026;
 - o teste automatizado do WordPress é mockado; um draft real só pode ser confirmado com credenciais autorizadas;
-- a migration inicial PostgreSQL já foi aplicada e validada em produção; migrations posteriores continuam exigindo aprovação explícita;
+- as migrations `0000`, `0001` e `0002` já foram aplicadas e validadas em produção; migrations posteriores continuam exigindo aprovação explícita;
 - dados que já estejam em outro banco precisam de exportação e importação controladas; a migration estrutural não copia dados entre provedores;
 - Vinext e Nitro continuam em versões experimentais/beta e devem ser acompanhados em cada atualização.

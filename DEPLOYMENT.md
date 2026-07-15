@@ -33,7 +33,22 @@ Banco:
 - `DATABASE_URL`: URL PostgreSQL com pooling e TLS;
 - `DATABASE_POOL_MAX=5`.
 
-IA editorial (fora da Sprint de Monitoramento): mantenha todas as variáveis `AI_*` ausentes. Em uma sprint futura, valide o identificador oficial do modelo e os preços na documentação da OpenAI antes de configurar `AI_PROVIDER`, `AI_API_KEY`, `AI_MODEL`, limites e tarifas.
+Inteligência editorial sob demanda:
+
+```text
+AI_PROVIDER=gemini
+GEMINI_API_KEY=<segredo criado no Google AI Studio>
+AI_MODEL=gemini-2.5-flash
+AI_BASE_URL=https://generativelanguage.googleapis.com/v1beta
+AI_TIMEOUT_MS=45000
+AI_MAX_RETRIES=2
+AI_DAILY_LIMIT_USD=5
+AI_DAILY_REQUEST_LIMIT=100
+AI_INPUT_COST_PER_1M=<tarifa vigente>
+AI_OUTPUT_COST_PER_1M=<tarifa vigente>
+```
+
+Não exponha `GEMINI_API_KEY` ao cliente. A aplicação envia a chave no header `x-goog-api-key`, valida a resposta com Zod e só chama o Gemini ao clicar em “Gerar Kit Editorial”. Confirme tarifas vigentes antes de preencher os campos de custo.
 
 WordPress:
 
@@ -49,7 +64,7 @@ Configure os segredos em Production e, somente se necessário, em Preview. Nunca
 
 ## Migration segura
 
-A migration inicial PostgreSQL é `drizzle/0000_bumpy_thunderbolt.sql`; ela já foi aplicada e validada no Neon de produção. A migration operacional do Monitoramento é `drizzle/0001_brief_microbe.sql`. Ambas contêm apenas criação aditiva de tabelas, colunas, índices e relacionamentos; a inicial também cadastra duas fontes com `ON CONFLICT DO NOTHING`. Nenhuma contém comandos destrutivos.
+A migration inicial PostgreSQL é `drizzle/0000_bumpy_thunderbolt.sql`; ela já foi aplicada e validada no Neon de produção. A migration operacional do Monitoramento é `drizzle/0001_brief_microbe.sql`. A Biblioteca Editorial usa `drizzle/0002_overjoyed_gideon.sql`, aplicada e validada em produção em 15/07/2026, composta somente por `CREATE TABLE`, uma chave estrangeira sem cascata e `CREATE INDEX`. Nenhuma migration futura deve ser executada em produção sem aprovação explícita.
 
 Processo obrigatório:
 
@@ -75,16 +90,16 @@ npm run db:check
 
 O comando abre uma transação, insere um log de diagnóstico, lê o registro e o remove antes de concluir. Depois do deploy, `/api/ready` confirma a consulta do runtime; cadastre uma fonte e recarregue o Monitoramento para validar persistência entre requisições.
 
-## Validar OpenAI real
+## Validar Gemini real
 
-1. crie uma API key de projeto na OpenAI com orçamento e limites definidos;
-2. configure as variáveis `AI_*` na Vercel;
+1. crie uma API key no Google AI Studio e defina limites de uso;
+2. configure `GEMINI_API_KEY` e as variáveis `AI_*` na Vercel;
 3. faça novo deploy;
 4. abra `/api/ai/status` e confirme `configured: true`;
-5. selecione uma notícia real, gere briefing e artigo;
+5. abra a Notícia do Dia e gere um Kit Editorial;
 6. confirme em Histórico/Logs que o provedor, modelo, tokens, latência e custo estimado foram registrados.
 
-Uma resposta determinística não comprova a integração real; briefing e artigo só contam como validados quando a chamada ao provedor termina com sucesso e gera log de uso.
+Uma decisão determinística não comprova a integração real; o Kit Editorial só conta como validado quando a chamada ao provedor termina com sucesso, passa pelo schema Zod, é salvo na Biblioteca e gera log de uso.
 
 ## Testar um draft real no WordPress
 

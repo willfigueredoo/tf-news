@@ -4,11 +4,13 @@ function numberValue(value: string | undefined, fallback: number) {
 }
 
 export function getAiConfig() {
+  const provider = process.env.AI_PROVIDER?.trim().toLowerCase() ?? "";
+  const defaultBaseUrl = provider === "gemini" ? "https://generativelanguage.googleapis.com/v1beta" : "https://api.openai.com/v1";
   return {
-    provider: process.env.AI_PROVIDER?.trim().toLowerCase() ?? "",
-    apiKey: process.env.AI_API_KEY?.trim() ?? "",
+    provider,
+    apiKey: (provider === "gemini" ? process.env.GEMINI_API_KEY : process.env.AI_API_KEY)?.trim() ?? "",
     model: process.env.AI_MODEL?.trim() ?? "",
-    baseUrl: (process.env.AI_BASE_URL?.trim() || "https://api.openai.com/v1").replace(/\/+$/, ""),
+    baseUrl: (process.env.AI_BASE_URL?.trim() || defaultBaseUrl).replace(/\/+$/, ""),
     timeoutMs: numberValue(process.env.AI_TIMEOUT_MS, 45_000),
     maxRetries: Math.min(3, Math.max(0, numberValue(process.env.AI_MAX_RETRIES, 2))),
     dailyCostLimitUsd: Math.max(0, numberValue(process.env.AI_DAILY_LIMIT_USD, 5)),

@@ -16,24 +16,25 @@ export type AiConfig = {
 
 type AiDb = Pick<Database, "prepare">;
 type FetchLike = typeof fetch;
-
-type ResponsesPayload = {
+type ProviderPayload = {
   id?: string;
-  status?: string;
+  responseId?: string;
   output_text?: string;
   output?: Array<{ type?: string; content?: Array<{ type?: string; text?: string; refusal?: string }> }>;
   usage?: { input_tokens?: number; output_tokens?: number; total_tokens?: number };
+  candidates?: Array<{ content?: { parts?: Array<{ text?: string }> }; finishReason?: string }>;
+  usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number; totalTokenCount?: number };
   error?: { message?: string };
 };
 
 export function aiConfigured(config: AiConfig) {
-  return config.provider === "openai" && Boolean(config.apiKey && config.model);
+  return ["openai", "gemini"].includes(config.provider) && Boolean(config.apiKey && config.model);
 }
 
 export async function runStructuredAi<T>(options: {
   db: AiDb;
   config: AiConfig;
-  operation: "classification" | "coherence" | "brief" | "article";
+  operation: "classification" | "coherence" | "brief" | "article" | "editorial-kit";
   schemaName: string;
   schema: ZodType<T>;
   system: string;
@@ -50,20 +51,9 @@ export async function runStructuredAi<T>(options: {
   let lastError = "Falha desconhecida na IA.";
   for (let attempt = 0; attempt <= config.maxRetries; attempt += 1) {
     try {
-      const jsonSchema = normalizeOpenAiSchema(z.toJSONSchema(schema, { target: "draft-7" }) as Record<string, unknown>);
+      const jsonSchema = normalizeProviderSchema(z.toJSONSchema(schema, { target: "draft-7" }) as Record<string, unknown>);
       delete jsonSchema.$schema;
-      const response = await fetchImpl(`${config.baseUrl}/responses`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${config.apiKey}`, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: config.model,
-          store: false,
-          input: [{ role: "system", content: system }, { role: "user", content: user }],
-          max_output_tokens: options.maxOutputTokens ?? 1800,
-          text: { format: { type: "json_schema", name: schemaName, strict: true, schema: jsonSchema } },
-        }),
-        signal: AbortSignal.timeout(config.timeoutMs),
-      });
+      const response = await requestProvider(fetchImpl, config, { schemaName, jsonSchema, system, user, maxOutputTokens: options.maxOutputTokens ?? 1800 });
       const payload = await safeJson(response);
       if (!response.ok) {
         lastError = payload.error?.message || `A IA respondeu com status ${response.status}.`;
@@ -75,14 +65,15 @@ export async function runStructuredAi<T>(options: {
       }
       const refusal = payload.output?.flatMap((item) => item.content ?? []).find((item) => item.refusal)?.refusal;
       if (refusal) throw new Error(`A IA recusou a solicitação: ${refusal}`);
-      const outputText = payload.output_text || payload.output?.flatMap((item) => item.content ?? []).find((item) => item.type === "output_text")?.text;
+      const outputText = extractOutputText(payload, config.provider);
       if (!outputText) throw new Error("A IA não retornou conteúdo estruturado.");
       const data = schema.parse(JSON.parse(outputText));
-      const inputTokens = payload.usage?.input_tokens ?? 0;
-      const outputTokens = payload.usage?.output_tokens ?? 0;
+      const inputTokens = payload.usage?.input_tokens ?? payload.usageMetadata?.promptTokenCount ?? 0;
+      const outputTokens = payload.usage?.output_tokens ?? payload.usageMetadata?.candidatesTokenCount ?? 0;
       const estimatedCostUsd = estimateCost(inputTokens, outputTokens, config);
-      await logUsage(db, { operation, config, status: "success", started, inputTokens, outputTokens, estimatedCostUsd, requestId: payload.id ?? null });
-      return { data, usage: { inputTokens, outputTokens, estimatedCostUsd }, requestId: payload.id ?? null };
+      const requestId = payload.id ?? payload.responseId ?? response.headers.get("x-request-id");
+      await logUsage(db, { operation, config, status: "success", started, inputTokens, outputTokens, estimatedCostUsd, requestId });
+      return { data, usage: { inputTokens, outputTokens, estimatedCostUsd }, requestId };
     } catch (error) {
       lastError = error instanceof Error ? error.message : "Falha desconhecida na IA.";
       if (attempt < config.maxRetries && /timeout|fetch|network|aborted/i.test(lastError)) {
@@ -94,6 +85,39 @@ export async function runStructuredAi<T>(options: {
     }
   }
   throw new Error(lastError);
+}
+
+async function requestProvider(fetchImpl: FetchLike, config: AiConfig, input: { schemaName: string; jsonSchema: Record<string, unknown>; system: string; user: string; maxOutputTokens: number }) {
+  if (config.provider === "gemini") {
+    const model = config.model.replace(/^models\//, "");
+    return fetchImpl(`${config.baseUrl}/models/${encodeURIComponent(model)}:generateContent`, {
+      method: "POST",
+      headers: { "x-goog-api-key": config.apiKey, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: input.system }] },
+        contents: [{ role: "user", parts: [{ text: input.user }] }],
+        generationConfig: { responseMimeType: "application/json", responseJsonSchema: input.jsonSchema, maxOutputTokens: input.maxOutputTokens },
+      }),
+      signal: AbortSignal.timeout(config.timeoutMs),
+    });
+  }
+  return fetchImpl(`${config.baseUrl}/responses`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${config.apiKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: config.model,
+      store: false,
+      input: [{ role: "system", content: input.system }, { role: "user", content: input.user }],
+      max_output_tokens: input.maxOutputTokens,
+      text: { format: { type: "json_schema", name: input.schemaName, strict: true, schema: input.jsonSchema } },
+    }),
+    signal: AbortSignal.timeout(config.timeoutMs),
+  });
+}
+
+function extractOutputText(payload: ProviderPayload, provider: string) {
+  if (provider === "gemini") return payload.candidates?.flatMap((candidate) => candidate.content?.parts ?? []).map((part) => part.text ?? "").join("") || undefined;
+  return payload.output_text || payload.output?.flatMap((item) => item.content ?? []).find((item) => item.type === "output_text")?.text;
 }
 
 async function assertDailyLimit(db: AiDb, config: AiConfig) {
@@ -109,7 +133,7 @@ async function logUsage(db: AiDb, input: { operation: string; config: AiConfig; 
     await db.prepare("INSERT INTO ai_usage_logs (operation, provider, model, status, input_tokens, output_tokens, estimated_cost_usd, latency_ms, request_id, error_message, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
       .bind(input.operation, input.config.provider, input.config.model, input.status, input.inputTokens, input.outputTokens, input.estimatedCostUsd, Date.now() - input.started, input.requestId, input.error?.slice(0, 800) ?? null, new Date().toISOString()).run();
   } catch {
-    // Operational logging must never turn a valid editorial response into a failure.
+    // Logging operacional não deve invalidar uma resposta editorial válida.
   }
 }
 
@@ -117,21 +141,21 @@ function estimateCost(inputTokens: number, outputTokens: number, config: AiConfi
   return Number((((inputTokens * config.inputCostPerMillion) + (outputTokens * config.outputCostPerMillion)) / 1_000_000).toFixed(8));
 }
 
-async function safeJson(response: Response): Promise<ResponsesPayload> {
-  try { return await response.json() as ResponsesPayload; } catch { return {}; }
+async function safeJson(response: Response): Promise<ProviderPayload> {
+  try { return await response.json() as ProviderPayload; } catch { return {}; }
 }
 
 function retryable(status: number) { return [408, 409, 429, 500, 502, 503, 504].includes(status); }
 function delay(ms: number) { return new Promise((resolve) => setTimeout(resolve, ms)); }
 
-function normalizeOpenAiSchema(value: unknown): Record<string, unknown> {
-  if (Array.isArray(value)) return value.map((item) => normalizeOpenAiSchema(item)) as unknown as Record<string, unknown>;
+function normalizeProviderSchema(value: unknown): Record<string, unknown> {
+  if (Array.isArray(value)) return value.map((item) => normalizeProviderSchema(item)) as unknown as Record<string, unknown>;
   if (!value || typeof value !== "object") return value as Record<string, unknown>;
   const result: Record<string, unknown> = {};
   for (const [key, nested] of Object.entries(value as Record<string, unknown>)) {
-    if (key === "minLength" || key === "maxLength") continue;
+    if (["minLength", "maxLength", "$schema"].includes(key)) continue;
     if (key === "format" && !["date-time", "time", "date", "duration", "email", "hostname", "ipv4", "ipv6", "uuid"].includes(String(nested))) continue;
-    result[key] = Array.isArray(nested) ? nested.map((item) => typeof item === "object" && item !== null ? normalizeOpenAiSchema(item) : item) : typeof nested === "object" && nested !== null ? normalizeOpenAiSchema(nested) : nested;
+    result[key] = Array.isArray(nested) ? nested.map((item) => typeof item === "object" && item !== null ? normalizeProviderSchema(item) : item) : typeof nested === "object" && nested !== null ? normalizeProviderSchema(nested) : nested;
   }
   return result;
 }

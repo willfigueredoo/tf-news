@@ -7,6 +7,7 @@ const expectedTables = [
   "ai_usage_logs",
   "articles",
   "editorial_briefs",
+  "editorial_kits",
   "job_locks",
   "job_logs",
   "news_items",
@@ -38,8 +39,29 @@ try {
       and table_name = any(${expectedTables})
   `;
   const [{ sources }] = await sql`select count(*)::int as sources from sources`;
+  const editorialKitIndexes = await sql`
+    select indexname
+    from pg_indexes
+    where schemaname = 'public' and tablename = 'editorial_kits'
+    order by indexname
+  `;
+  const editorialKitForeignKeys = await sql`
+    select constraint_name, delete_rule, update_rule
+    from information_schema.referential_constraints
+    where constraint_schema = 'public'
+      and constraint_name = 'editorial_kits_news_item_id_news_items_id_fk'
+  `;
 
-  console.log(JSON.stringify({ tables: created, indexes, foreignKeys, sources }, null, 2));
+  console.log(JSON.stringify({
+    tables: created,
+    indexes,
+    foreignKeys,
+    sources,
+    editorialKits: {
+      indexes: editorialKitIndexes.map((row) => row.indexname),
+      foreignKeys: editorialKitForeignKeys,
+    },
+  }, null, 2));
 } finally {
   await sql.end();
 }

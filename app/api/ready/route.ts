@@ -3,7 +3,7 @@ import { getRuntimeDb } from "../../../db/runtime";
 export async function GET() {
   try {
     const db = await getRuntimeDb();
-    const schema = await db.prepare("SELECT to_regclass('public.sources') AS sources, to_regclass('public.news_items') AS news_items, to_regclass('public.news_item_history') AS news_item_history, to_regclass('public.job_logs') AS job_logs").first<{ sources: string | null; news_items: string | null; news_item_history: string | null; job_logs: string | null }>();
+    const schema = await db.prepare("SELECT to_regclass('public.sources') AS sources, to_regclass('public.news_items') AS news_items, to_regclass('public.news_item_history') AS news_item_history, to_regclass('public.editorial_kits') AS editorial_kits, to_regclass('public.job_logs') AS job_logs").first<{ sources: string | null; news_items: string | null; news_item_history: string | null; editorial_kits: string | null; job_logs: string | null }>();
     const missing = Object.entries(schema ?? {})
       .filter(([, value]) => !value)
       .map(([table]) => table);

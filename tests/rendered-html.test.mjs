@@ -19,6 +19,11 @@ test("mantém a experiência principal e remove o starter", async () => {
   ]);
   assert.match(page, /TFNewsApp/);
   assert.match(app, /Monitoramento/);
+  assert.match(app, /Visão Executiva/);
+  assert.match(app, /Biblioteca/);
+  assert.match(app, /Radar/);
+  assert.match(app, /Insights/);
+  assert.match(app, /EditorialIntelligence/);
   assert.match(app, /Criar Conteúdo/);
   assert.match(app, /Configurações/);
   assert.doesNotMatch(app, /DEMO_NEWS|Prévia TF News/);
@@ -57,6 +62,7 @@ test("mantém a experiência principal e remove o starter", async () => {
   assert.match(readyRoute, /to_regclass/);
   assert.match(readyRoute, /schema_pending/);
   assert.match(readyRoute, /news_item_history/);
+  assert.match(readyRoute, /editorial_kits/);
   assert.doesNotMatch(vercelConfig, /\.next/);
   assert.doesNotMatch(`${page}${app}${layout}${packageJson}`, /codex-preview|Your site is taking shape|react-loading-skeleton/);
 });

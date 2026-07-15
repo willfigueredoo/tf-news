@@ -128,6 +128,24 @@ export const articles = pgTable("articles", {
   updatedAt: text("updated_at").notNull(),
 });
 
+export const editorialKits = pgTable("editorial_kits", {
+  id: serial("id").primaryKey(),
+  newsItemId: integer("news_item_id").notNull().references(() => newsItems.id),
+  title: text("title").notNull(),
+  primaryIcp: text("primary_icp").notNull(),
+  editorialScore: integer("editorial_score").notNull(),
+  provider: text("provider").notNull(),
+  model: text("model").notNull(),
+  payload: text("payload").notNull(),
+  status: text("status").notNull().default("draft"),
+  archivedAt: text("archived_at"),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+}, (table) => [
+  index("editorial_kits_news_idx").on(table.newsItemId, table.createdAt),
+  index("editorial_kits_status_idx").on(table.status, table.updatedAt),
+]);
+
 export const wordpressPublications = pgTable("wordpress_publications", {
   id: serial("id").primaryKey(),
   articleId: integer("article_id").notNull().unique().references(() => articles.id),
