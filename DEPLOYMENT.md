@@ -24,7 +24,7 @@ Também é possível instalar pelo terminal autenticado com `vercel install neon
 - Output Directory: sem override;
 - Node.js: 24.x.
 
-O cron chama `/api/cron/collect` às 11:00, 17:00 e 23:00 UTC (08:00, 14:00 e 20:00 em Brasília). Essa frequência requer o plano Pro atualmente ativo. No Hobby, mantenha apenas `0 11 * * *`. O endpoint exige `Authorization: Bearer $CRON_SECRET`, usa lock no PostgreSQL e registra a execução.
+O cron chama `/api/cron/collect` diariamente às 11:00 UTC (08:00 em Brasília), frequência compatível com o plano Hobby atualmente detectado pela Vercel. Para usar duas ou três coletas diárias será necessário migrar o projeto para Pro e alterar conscientemente a expressão. O endpoint exige `Authorization: Bearer $CRON_SECRET`, usa lock no PostgreSQL e registra a execução.
 
 ## Variáveis de ambiente
 

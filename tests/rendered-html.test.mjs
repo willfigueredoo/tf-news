@@ -50,7 +50,7 @@ test("mantém a experiência principal e remove o starter", async () => {
   assert.match(vercelConfig, /npm run build:vercel/);
   assert.match(vercelConfig, /"outputDirectory": null/);
   assert.match(vercelConfig, /api\/cron\/collect/);
-  assert.match(vercelConfig, /0 11,17,23 \* \* \*/);
+  assert.match(vercelConfig, /0 11 \* \* \*/);
   assert.match(vercelOutputScript, /outputConfig\.crons/);
   assert.doesNotMatch(vercelOutputScript, /outputConfig\.crons\s*=/);
   assert.match(vercelOutputScript, /evitar duplica/);
