@@ -38,17 +38,17 @@ Inteligência editorial sob demanda:
 ```text
 AI_PROVIDER=gemini
 GEMINI_API_KEY=<segredo criado no Google AI Studio>
-AI_MODEL=gemini-2.5-flash
+AI_MODEL=gemini-3.5-flash
 AI_BASE_URL=https://generativelanguage.googleapis.com/v1beta
-AI_TIMEOUT_MS=45000
-AI_MAX_RETRIES=2
+AI_TIMEOUT_MS=42000
+AI_MAX_RETRIES=0
 AI_DAILY_LIMIT_USD=5
 AI_DAILY_REQUEST_LIMIT=100
 AI_INPUT_COST_PER_1M=<tarifa vigente>
 AI_OUTPUT_COST_PER_1M=<tarifa vigente>
 ```
 
-Não exponha `GEMINI_API_KEY` ao cliente. A aplicação envia a chave no header `x-goog-api-key`, valida a resposta com Zod e só chama o Gemini ao clicar em “Gerar Kit Editorial”. Confirme tarifas vigentes antes de preencher os campos de custo.
+Não exponha `GEMINI_API_KEY` ao cliente. A aplicação envia a chave no header `x-goog-api-key`, valida a resposta com Zod e só chama o Gemini ao clicar em “Gerar Kit Editorial”. O Kit V1 gera somente Blog SEO e WhatsApp Comercial, limita a saída a 3.600 tokens, não repete a chamada e usa `AbortController` com teto efetivo de 42 segundos, abaixo dos 60 segundos da função Vercel. Confirme tarifas vigentes antes de preencher os campos de custo.
 
 WordPress:
 

@@ -17,10 +17,9 @@ type Intelligence = {
 };
 type Kit = { id: number; newsItemId: number; title: string; primaryIcp: string; editorialScore: number; provider: string; model: string; payload: KitPayload; status: string; archivedAt: string | null; createdAt: string; updatedAt: string };
 type KitPayload = {
-  strategicIntelligence: { eventSummary: string; whyItMatters: string; commercialImpact: string; logisticsImpact: string; recommendedAngle: string; audience: string; factualWarnings: string[] };
-  blogSeo: { seoTitle: string; metaDescription: string; slug: string; introduction: string; sections: Array<{ heading: string; level: string; content: string }>; conclusion: string; cta: string; faq: Array<{ question: string; answer: string }>; faqSchema: string; category: string; tags: string[]; html: string; markdown: string };
-  whatsapp: { title: string; content: string }; linkedin: { title: string; content: string }; newsletter: { title: string; content: string };
-  reels: { hook: string; scenes: string[]; caption: string }; imagePrompt: string; sources: Array<{ name: string; url: string }>;
+  metadata: { version: "v1"; generatedAt: string; newsId: number; sourceTitle: string; sourceName: string; sourceUrl: string; primaryIcp: string; editorialScore: number };
+  blog: { title: string; seoTitle: string; slug: string; metaDescription: string; primaryKeyword: string; secondaryKeywords: string[]; excerpt: string; html: string; category: string; tags: string[]; cta: string; sources: Array<{ name: string; url: string }> };
+  whatsapp: { content: string };
 };
 
 export function EditorialIntelligence({ mode, aiConfigured, focusNewsId, onMonitor, notify }: { mode: "overview" | "library" | "radar" | "insights"; aiConfigured: boolean; focusNewsId?: number | null; onMonitor: () => void; notify: (message: string) => void }) {
@@ -49,7 +48,7 @@ export function EditorialIntelligence({ mode, aiConfigured, focusNewsId, onMonit
   useEffect(() => { const timer = window.setTimeout(() => { void load(); }, 0); return () => window.clearTimeout(timer); }, [load]);
 
   const featured = useMemo(() => intelligence?.all.find((item) => item.id === focusNewsId) ?? intelligence?.newsOfTheDay ?? null, [focusNewsId, intelligence]);
-  const filteredKits = kits.filter((kit) => `${kit.title} ${kit.primaryIcp} ${kit.payload.blogSeo.tags.join(" ")}`.toLowerCase().includes(search.toLowerCase()));
+  const filteredKits = kits.filter((kit) => `${kit.title} ${kit.primaryIcp} ${kit.payload.blog.tags.join(" ")}`.toLowerCase().includes(search.toLowerCase()));
 
   async function generateKit(newsId: number) {
     if (!aiConfigured) return notify("Configure o Gemini para gerar o Kit Editorial.");
@@ -98,7 +97,7 @@ function ScoreBreakdown({ decision }: { decision: Decision }) {
 }
 
 function Library({ kits, search, setSearch, pending, onOpen, onUpdate, selected, onClose }: { kits: Kit[]; search: string; setSearch: (value: string) => void; pending: boolean; onOpen: (kit: Kit) => void; onUpdate: (id: number, action: "archive" | "restore" | "duplicate") => void; selected: Kit | null; onClose: () => void }) {
-  return <><div className="section-head"><div><div className="eyebrow">Acervo estratégico</div><h1>Biblioteca Editorial</h1><p className="subtitle">Kits multicanal salvos, pesquisáveis e prontos para revisão ou exportação.</p></div></div>{pending && <div className="notice">A migration aditiva da Biblioteca ainda não foi aplicada. Nenhum dado fictício será exibido.</div>}<div className="card toolbar"><input className="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar por título, ICP ou tag…" /></div><div className="content-list">{kits.length ? kits.map((kit) => <article className="card content-item" key={kit.id}><div><div className="content-title">{kit.title}</div><div className="content-meta">{kit.primaryIcp} · score {kit.editorialScore} · {kit.provider}/{kit.model}</div><div className="tags" style={{ marginTop: 8 }}>{kit.payload.blogSeo.tags.slice(0, 5).map((tag) => <span className="tag" key={tag}>{tag}</span>)}</div></div><div className="content-actions"><button className="secondary" onClick={() => onOpen(kit)}>Abrir kit</button><button className="ghost" onClick={() => exportKit(kit)}>Exportar</button><button className="ghost" onClick={() => onUpdate(kit.id, "duplicate")}>Duplicar</button><button className="ghost" onClick={() => onUpdate(kit.id, kit.archivedAt ? "restore" : "archive")}>{kit.archivedAt ? "Restaurar" : "Arquivar"}</button></div></article>) : <div className="card empty"><strong>Nenhum Kit Editorial salvo</strong>Gere o primeiro kit a partir da Notícia do Dia.</div>}</div>{selected && <KitDrawer kit={selected} onClose={onClose} />}</>;
+  return <><div className="section-head"><div><div className="eyebrow">Acervo estratégico</div><h1>Biblioteca Editorial</h1><p className="subtitle">Blog SEO e WhatsApp Comercial salvos e prontos para revisão ou exportação.</p></div></div>{pending && <div className="notice">A migration aditiva da Biblioteca ainda não foi aplicada. Nenhum dado fictício será exibido.</div>}<div className="card toolbar"><input className="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar por título, ICP ou tag…" /></div><div className="content-list">{kits.length ? kits.map((kit) => <article className="card content-item" key={kit.id}><div><div className="content-title">{kit.title}</div><div className="content-meta">{kit.primaryIcp} · score {kit.editorialScore} · {kit.provider}/{kit.model}</div><div className="tags" style={{ marginTop: 8 }}>{kit.payload.blog.tags.slice(0, 5).map((tag) => <span className="tag" key={tag}>{tag}</span>)}</div></div><div className="content-actions"><button className="secondary" onClick={() => onOpen(kit)}>Abrir kit</button><button className="ghost" onClick={() => exportKit(kit)}>Exportar</button><button className="ghost" onClick={() => onUpdate(kit.id, "duplicate")}>Duplicar</button><button className="ghost" onClick={() => onUpdate(kit.id, kit.archivedAt ? "restore" : "archive")}>{kit.archivedAt ? "Restaurar" : "Arquivar"}</button></div></article>) : <div className="card empty"><strong>Nenhum Kit Editorial salvo</strong>Gere o primeiro kit a partir da Notícia do Dia.</div>}</div>{selected && <KitDrawer kit={selected} onClose={onClose} />}</>;
 }
 
 function Radar({ intelligence }: { intelligence: Intelligence }) {
@@ -110,18 +109,14 @@ function Insights({ intelligence }: { intelligence: Intelligence }) {
 }
 
 function KitDrawer({ kit, onClose }: { kit: Kit; onClose: () => void }) {
-  const [channel, setChannel] = useState("Inteligência");
-  const channels = ["Inteligência", "Blog SEO", "WhatsApp", "LinkedIn", "Newsletter", "Reels", "Imagem"];
-  return <div className="detail-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><aside className="detail-drawer kit-drawer" role="dialog" aria-modal="true" aria-label="Kit Editorial"><div className="detail-head"><div><div className="eyebrow">Kit Editorial #{kit.id}</div><h2>{kit.title}</h2></div><button className="theme-toggle" onClick={onClose} aria-label="Fechar">×</button></div><div className="kit-tabs">{channels.map((item) => <button className={channel === item ? "active" : ""} onClick={() => setChannel(item)} key={item}>{item}</button>)}</div><KitChannel channel={channel} payload={kit.payload} /></aside></div>;
+  const [channel, setChannel] = useState("Blog SEO");
+  const channels = ["Blog SEO", "WhatsApp"];
+  return <div className="detail-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><aside className="detail-drawer kit-drawer" role="dialog" aria-modal="true" aria-label="Kit Editorial"><div className="detail-head"><div><div className="eyebrow">Kit Editorial #{kit.id} · Blog + WhatsApp</div><h2>{kit.title}</h2></div><button className="theme-toggle" onClick={onClose} aria-label="Fechar">×</button></div><div className="kit-tabs">{channels.map((item) => <button className={channel === item ? "active" : ""} onClick={() => setChannel(item)} key={item}>{item}</button>)}</div><KitChannel channel={channel} payload={kit.payload} /></aside></div>;
 }
 
 function KitChannel({ channel, payload }: { channel: string; payload: KitPayload }) {
-  if (channel === "Inteligência") return <div className="kit-copy"><h3>Por que importa</h3><p>{payload.strategicIntelligence.whyItMatters}</p><h3>Ângulo recomendado</h3><p>{payload.strategicIntelligence.recommendedAngle}</p><h3>Público</h3><p>{payload.strategicIntelligence.audience}</p></div>;
-  if (channel === "Blog SEO") return <div className="kit-copy"><h3>{payload.blogSeo.seoTitle}</h3><p>{payload.blogSeo.metaDescription}</p><code>/{payload.blogSeo.slug}</code><div className="kit-html" dangerouslySetInnerHTML={{ __html: payload.blogSeo.html }} /></div>;
-  if (channel === "Reels") return <div className="kit-copy"><h3>{payload.reels.hook}</h3><ol>{payload.reels.scenes.map((scene) => <li key={scene}>{scene}</li>)}</ol><p>{payload.reels.caption}</p></div>;
-  if (channel === "Imagem") return <div className="kit-copy"><h3>Prompt visual</h3><p>{payload.imagePrompt}</p></div>;
-  const block = channel === "WhatsApp" ? payload.whatsapp : channel === "LinkedIn" ? payload.linkedin : payload.newsletter;
-  return <div className="kit-copy"><h3>{block.title}</h3><p className="pre-wrap">{block.content}</p></div>;
+  if (channel === "Blog SEO") return <div className="kit-copy"><h3>{payload.blog.title}</h3><p>{payload.blog.metaDescription}</p><code>/{payload.blog.slug}</code><div className="kit-html" dangerouslySetInnerHTML={{ __html: payload.blog.html }} /></div>;
+  return <div className="kit-copy"><h3>WhatsApp Comercial</h3><p className="pre-wrap">{payload.whatsapp.content}</p></div>;
 }
 
 function exportKit(kit: Kit) {

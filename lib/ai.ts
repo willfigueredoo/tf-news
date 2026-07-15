@@ -90,7 +90,7 @@ export async function runStructuredAi<T>(options: {
 async function requestProvider(fetchImpl: FetchLike, config: AiConfig, input: { schemaName: string; jsonSchema: Record<string, unknown>; system: string; user: string; maxOutputTokens: number }) {
   if (config.provider === "gemini") {
     const model = config.model.replace(/^models\//, "");
-    return fetchImpl(`${config.baseUrl}/models/${encodeURIComponent(model)}:generateContent`, {
+    return fetchWithTimeout(fetchImpl, `${config.baseUrl}/models/${encodeURIComponent(model)}:generateContent`, {
       method: "POST",
       headers: { "x-goog-api-key": config.apiKey, "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -98,10 +98,9 @@ async function requestProvider(fetchImpl: FetchLike, config: AiConfig, input: { 
         contents: [{ role: "user", parts: [{ text: input.user }] }],
         generationConfig: { responseMimeType: "application/json", responseJsonSchema: input.jsonSchema, maxOutputTokens: input.maxOutputTokens },
       }),
-      signal: AbortSignal.timeout(config.timeoutMs),
-    });
+    }, config.timeoutMs);
   }
-  return fetchImpl(`${config.baseUrl}/responses`, {
+  return fetchWithTimeout(fetchImpl, `${config.baseUrl}/responses`, {
     method: "POST",
     headers: { Authorization: `Bearer ${config.apiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -111,8 +110,20 @@ async function requestProvider(fetchImpl: FetchLike, config: AiConfig, input: { 
       max_output_tokens: input.maxOutputTokens,
       text: { format: { type: "json_schema", name: input.schemaName, strict: true, schema: input.jsonSchema } },
     }),
-    signal: AbortSignal.timeout(config.timeoutMs),
-  });
+  }, config.timeoutMs);
+}
+
+async function fetchWithTimeout(fetchImpl: FetchLike, url: string, init: RequestInit, timeoutMs: number) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetchImpl(url, { ...init, signal: controller.signal });
+  } catch (error) {
+    if (controller.signal.aborted) throw new Error(`Timeout interno da IA após ${timeoutMs} ms.`);
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function extractOutputText(payload: ProviderPayload, provider: string) {

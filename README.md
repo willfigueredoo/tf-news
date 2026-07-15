@@ -4,7 +4,7 @@ Plataforma interna de monitoramento de mercado e inteligência editorial da Tran
 
 ## TF News V2
 
-RSS/Atom real → coleta → classificação → decisão editorial → Notícia do Dia → Kit Editorial multicanal → Biblioteca. A IA só é chamada quando um usuário solicita o kit; o ranking, Radar e Insights funcionam por regras transparentes sobre dados persistidos. WordPress permanece uma saída opcional.
+RSS/Atom real → coleta → classificação → decisão editorial → Notícia do Dia → Kit Editorial V1 (Blog SEO + WhatsApp Comercial) → Biblioteca. A IA só é chamada quando um usuário solicita o kit; o ranking, Radar e Insights funcionam por regras transparentes sobre dados persistidos. WordPress permanece uma saída opcional.
 
 ## Persistência
 
@@ -48,7 +48,9 @@ Consulte `DEPLOYMENT.md` para a configuração da Vercel, variáveis, migration 
 ## Limites reais
 
 - IA, WordPress e coleta cron reais dependem das respectivas variáveis no ambiente hospedado;
-- o provedor editorial atual é Gemini; `gemini-2.5-flash` foi validado na documentação oficial como modelo estável com saída estruturada;
+- o provedor editorial atual é Gemini e o modelo é definido por `AI_MODEL` no runtime;
+- a geração V1 usa no máximo 3.600 tokens de saída, uma tentativa e timeout interno efetivo de até 42 segundos;
+- LinkedIn, Newsletter, Reels e geração de imagem estão fora do fluxo ativo e permanecem no backlog futuro;
 - a migration aditiva `0002_overjoyed_gideon.sql` da Biblioteca Editorial foi aplicada e validada no Neon de produção em 15/07/2026;
 - o teste automatizado do WordPress é mockado; um draft real só pode ser confirmado com credenciais autorizadas;
 - as migrations `0000`, `0001` e `0002` já foram aplicadas e validadas em produção; migrations posteriores continuam exigindo aprovação explícita;
