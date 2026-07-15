@@ -4,7 +4,7 @@ import test from "node:test";
 import { z } from "zod";
 import { buildEditorialIntelligence, scoreEditorialOpportunity } from "../lib/editorial-intelligence.ts";
 import { runStructuredAi } from "../lib/ai.ts";
-import { createEditorialKit, EDITORIAL_KIT_MAX_OUTPUT_TOKENS, EDITORIAL_KIT_TIMEOUT_MS, normalizeEditorialKitPayload } from "../lib/editorial-kit.ts";
+import { createEditorialKit, EDITORIAL_KIT_MAX_OUTPUT_TOKENS, EDITORIAL_KIT_TIMEOUT_MS, normalizeEditorialKitPayload, normalizeGeneratedEditorialKitPayload } from "../lib/editorial-kit.ts";
 import { editorialKitPayloadSchema } from "../lib/operational-schemas.ts";
 
 const NOW = new Date("2026-07-15T12:00:00.000Z");
@@ -99,6 +99,34 @@ test("valida o Kit minimalista somente com Blog SEO e WhatsApp", () => {
   assert.equal(EDITORIAL_KIT_TIMEOUT_MS, 54_000);
 });
 
+test("normaliza comprimentos, slug e arrays sem cortar palavras", () => {
+  const raw = minimalPayload();
+  raw.blog.seoTitle = "Mercado de etanol amplia oportunidades logísticas para empresas brasileiras em 2026!!!";
+  raw.blog.metaDescription = `${raw.blog.metaDescription} ${"Planejamento logístico preserva eficiência operacional e competitividade. ".repeat(4)}`;
+  raw.blog.slug = "  Mercado de Etanol / Expansão & Logística --- " + "planejamento-".repeat(20);
+  raw.blog.excerpt = `${raw.blog.excerpt} ${"Empresas devem acompanhar capacidade, prazos e custos logísticos. ".repeat(12)}`;
+  raw.blog.tags = [" Etanol ", "etanol", "", "Logística", "logística", "Mercado", "Energia", "Brasil", "Transporte", "Planejamento", "Infraestrutura"];
+  raw.blog.secondaryKeywords = [" Transporte ", "transporte", "", "Armazenagem", "Custos", "Eficiência", "Rotas", "Mercado", "Oferta", "Demanda"];
+  raw.whatsapp.text = `${raw.whatsapp.text} ${"As empresas precisam revisar rotas e capacidade antes do aumento de demanda. ".repeat(8)}`;
+
+  const normalized = normalizeGeneratedEditorialKitPayload(raw);
+  assert.ok(normalized.blog.seoTitle.length <= 70);
+  assert.doesNotMatch(normalized.blog.seoTitle, /[,;:!?./–—-]$/u);
+  assert.ok(raw.blog.seoTitle.split(/\s+/).some((word) => word.replace(/[!]+$/u, "") === normalized.blog.seoTitle.split(" ").at(-1)));
+  assert.ok(normalized.blog.metaDescription.length <= 170);
+  assert.ok(normalized.blog.excerpt.length <= 500);
+  assert.match(normalized.blog.slug, /^[a-z0-9]+(?:-[a-z0-9]+)*$/);
+  assert.ok(normalized.blog.slug.length <= 140);
+  assert.doesNotMatch(normalized.blog.slug, /-$/);
+  assert.deepEqual(normalized.blog.tags.slice(0, 3), ["Etanol", "Logística", "Mercado"]);
+  assert.equal(new Set(normalized.blog.tags.map((tag) => tag.toLocaleLowerCase("pt-BR"))).size, normalized.blog.tags.length);
+  assert.ok(normalized.blog.tags.length <= 8);
+  assert.ok(normalized.blog.secondaryKeywords.length <= 8);
+  assert.ok(normalized.whatsapp.text.length <= 700);
+  assert.match(normalized.whatsapp.text, /[.!?]$/u);
+  assert.doesNotThrow(() => editorialKitPayloadSchema.parse(normalized));
+});
+
 test("cancela a chamada com AbortController no timeout interno e registra a falha", async () => {
   let aborted = false;
   const queries = [];
@@ -156,13 +184,20 @@ test("aguarda 5s e 10s em alta demanda, conclui na terceira tentativa e só ent�
     fetchImpl: async () => {
       requests += 1;
       if (requests < 3) return new Response(JSON.stringify({ error: { message: "This model is currently experiencing high demand." } }), { status: 503, headers: { "Content-Type": "application/json" } });
-      return new Response(JSON.stringify({ responseId: "minimal-kit", candidates: [{ content: { parts: [{ text: JSON.stringify(minimalPayload()) }] } }], usageMetadata: { promptTokenCount: 200, candidatesTokenCount: 900 } }), { status: 200, headers: { "Content-Type": "application/json" } });
+      const overlong = minimalPayload();
+      overlong.blog.seoTitle = "Mercado de etanol amplia oportunidades logísticas para empresas brasileiras em 2026";
+      overlong.blog.tags = ["Etanol", "etanol", "", "Logística"];
+      overlong.whatsapp.text = `${overlong.whatsapp.text} ${"A operação deve antecipar capacidade e rotas. ".repeat(8)}`;
+      return new Response(JSON.stringify({ responseId: "minimal-kit", candidates: [{ content: { parts: [{ text: JSON.stringify(overlong) }] } }], usageMetadata: { promptTokenCount: 200, candidatesTokenCount: 900 } }), { status: 200, headers: { "Content-Type": "application/json" } });
     },
   });
   assert.equal(kit.id, 123);
+  assert.ok(kit.payload.blog.seoTitle.length <= 70);
+  assert.ok(kit.payload.whatsapp.text.length <= 700);
+  assert.deepEqual(kit.payload.blog.tags, ["Etanol", "Logística"]);
   assert.equal(requests, 3);
   assert.deepEqual(delays, [5_000, 10_000]);
-  assert.deepEqual(phases.map((entry) => entry.phase), ["request_start", "provider_response", "retry_wait", "request_start", "provider_response", "retry_wait", "request_start", "provider_response", "zod_validation_start", "zod_validation_end", "persistence_start", "persistence_end"]);
+  assert.deepEqual(phases.map((entry) => entry.phase), ["request_start", "provider_response", "retry_wait", "request_start", "provider_response", "retry_wait", "request_start", "provider_response", "zod_validation_start", "zod_validation_end", "normalization_start", "normalization_end", "zod_final_validation_start", "zod_final_validation_end", "persistence_start", "persistence_end"]);
   assert.ok(queries.some((query) => query.includes("INSERT INTO editorial_kits")));
 });
 
@@ -184,6 +219,23 @@ test("encerra após a terceira resposta de alta demanda sem persistência parcia
   assert.equal(requests, 3);
   assert.deepEqual(delays, [5_000, 10_000]);
   assert.equal(queries.some((query) => query.includes("INSERT INTO editorial_kits")), false);
+});
+
+test("rejeita estrutura ausente ou HTML inválido sem persistência parcial", async () => {
+  for (const invalidPayload of [
+    { blog: minimalPayload().blog },
+    { ...minimalPayload(), blog: { ...minimalPayload().blog, html: `<script>alert("inválido")</script>${"texto ".repeat(400)}` } },
+  ]) {
+    const queries = [];
+    const db = fakeAiDb(queries);
+    const decision = scoreEditorialOpportunity(NEWS, NOW);
+    await assert.rejects(createEditorialKit(db, aiConfig({ model: "gemini-3.1-flash-lite" }), decision, {
+      now: NOW,
+      phaseLogger: () => {},
+      fetchImpl: async () => new Response(JSON.stringify({ responseId: "invalid-kit", candidates: [{ content: { parts: [{ text: JSON.stringify(invalidPayload) }] } }] }), { status: 200, headers: { "Content-Type": "application/json" } }),
+    }));
+    assert.equal(queries.some((query) => query.includes("INSERT INTO editorial_kits")), false);
+  }
 });
 
 test("normaliza kits antigos para leitura sem alterar os dados persistidos", () => {
@@ -256,7 +308,7 @@ function minimalPayload() {
       primaryKeyword: "logística no agronegócio",
       secondaryKeywords: ["transporte de cargas", "armazenagem"],
       excerpt: "O novo investimento produtivo altera a demanda regional por armazenagem, transporte e fornecedores especializados em operações do agronegócio.",
-      html: `<p>${"Contexto jornalístico e análise logística para empresas do setor. ".repeat(55)}</p>`,
+      html: `<h2>Contexto e impacto para o setor</h2><p>${"Contexto jornalístico e análise logística para empresas do setor. ".repeat(55)}</p>`,
       category: "Agronegócio",
       tags: ["agronegócio", "logística"],
       sources: [{ name: NEWS.sourceName, url: NEWS.originalUrl }],

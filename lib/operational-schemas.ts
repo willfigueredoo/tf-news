@@ -67,6 +67,27 @@ export const articlePayloadSchema = z.object({
   factualConfidence: z.number().min(0).max(1),
 });
 
+const editorialSourceSchema = z.object({ name: z.string().min(2).max(180), url: z.string().url() });
+
+export const editorialKitRawPayloadSchema = z.object({
+  blog: z.object({
+    title: z.string().min(1).max(2_000),
+    seoTitle: z.string().min(1).max(2_000),
+    slug: z.string().min(1).max(2_000),
+    metaDescription: z.string().min(1).max(10_000),
+    primaryKeyword: z.string().min(1).max(2_000),
+    secondaryKeywords: z.array(z.string()).max(100),
+    excerpt: z.string().min(1).max(10_000),
+    html: z.string().min(1).max(100_000),
+    category: z.string().min(1).max(2_000),
+    tags: z.array(z.string()).max(100),
+    sources: z.array(editorialSourceSchema).min(1).max(20),
+  }),
+  whatsapp: z.object({
+    text: z.string().min(1).max(10_000),
+  }),
+});
+
 export const editorialKitPayloadSchema = z.object({
   blog: z.object({
     title: z.string().min(10).max(180),
@@ -76,10 +97,10 @@ export const editorialKitPayloadSchema = z.object({
     primaryKeyword: z.string().min(2).max(120),
     secondaryKeywords: z.array(z.string().min(2).max(80)).min(1).max(8),
     excerpt: z.string().min(80).max(500),
-    html: z.string().min(1800).max(20_000),
+    html: z.string().min(1800).max(20_000).refine(isValidEditorialHtml, "HTML editorial inválido ou inseguro."),
     category: z.string().min(2).max(100),
     tags: z.array(z.string().min(2).max(80)).min(1).max(8),
-    sources: z.array(z.object({ name: z.string().min(2).max(180), url: z.string().url() })).min(1).max(6),
+    sources: z.array(editorialSourceSchema).min(1).max(6),
   }),
   whatsapp: z.object({
     text: z.string().min(400).max(700),
@@ -99,4 +120,13 @@ export type ClassificationPayload = z.infer<typeof classificationSchema>;
 export type CoherencePayload = z.infer<typeof coherenceSchema>;
 export type BriefPayload = z.infer<typeof briefPayloadSchema>;
 export type ArticlePayload = z.infer<typeof articlePayloadSchema>;
+export type EditorialKitRawPayload = z.infer<typeof editorialKitRawPayloadSchema>;
 export type EditorialKitPayload = z.infer<typeof editorialKitPayloadSchema>;
+
+function isValidEditorialHtml(html: string) {
+  return /<p(?:\s|>)/i.test(html)
+    && /<\/p>/i.test(html)
+    && /<h2(?:\s|>)/i.test(html)
+    && /<\/h2>/i.test(html)
+    && !/<(?:script|iframe|object|embed|form)\b/i.test(html);
+}

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { aiConfigured, logAiPhase, runStructuredAi, type AiConfig, type AiPhaseLogger } from "./ai.ts";
-import { editorialKitPayloadSchema, type EditorialKitPayload } from "./operational-schemas.ts";
+import { editorialKitPayloadSchema, editorialKitRawPayloadSchema, type EditorialKitPayload, type EditorialKitRawPayload } from "./operational-schemas.ts";
 import type { Database } from "../db/runtime.ts";
 import type { EditorialDecision } from "./editorial-intelligence.ts";
 
@@ -49,6 +49,8 @@ const legacyKitSchema = z.object({
 
 export async function generateEditorialKit(db: Database, config: AiConfig, decision: EditorialDecision, options: GenerationOptions = {}): Promise<EditorialKitPayload> {
   if (!aiConfigured(config)) throw new Error("Configure o Gemini antes de gerar um Kit Editorial.");
+  const started = Date.now();
+  const phaseLogger = options.phaseLogger ?? logAiPhase;
   const response = await runStructuredAi({
     db,
     config: {
@@ -58,15 +60,17 @@ export async function generateEditorialKit(db: Database, config: AiConfig, decis
     },
     operation: "editorial-kit",
     schemaName: "tf_news_editorial_kit_minimal_v1",
-    schema: editorialKitPayloadSchema,
+    schema: editorialKitRawPayloadSchema,
     system: [
       "Você é o editor do TF News, especializado em logística B2B e inteligência de mercado.",
       "Gere somente os objetos blog e whatsapp definidos no schema, em português do Brasil.",
       "Não gere avaliações, explicações do processo, alternativas de título, FAQ, JSON-LD, metadados extras ou outros canais.",
       "Não invente dados, falas, datas ou relações causais. Use somente os fatos e a fonte fornecidos.",
       "O blog deve ter de 500 a 700 palavras, linguagem jornalística objetiva e HTML semântico compatível com WordPress.",
+      "O campo seoTitle deve ter no máximo 65 caracteres, deixando margem para validação.",
+      "A metaDescription deve ter de 120 a 160 caracteres e incluir a palavra-chave principal naturalmente.",
       "Use introdução, H2 e H3 naturais, contexto, impacto setorial, impacto logístico quando aplicável, pontos de acompanhamento, conclusão e uma seção de fontes.",
-      "O WhatsApp deve ter de 400 a 700 caracteres, linguagem humana, resumo do fato, impacto no segmento, conexão logística e CTA comercial discreto.",
+      "O WhatsApp deve ter de 400 a 650 caracteres, linguagem humana, resumo do fato, impacto no segmento, conexão logística e CTA comercial discreto.",
       "Não use jargões internos como score, ICP selecionado ou impacto moderado no conteúdo público.",
       "Retorne somente JSON válido que obedeça ao schema solicitado.",
     ].join(" "),
@@ -96,9 +100,43 @@ export async function generateEditorialKit(db: Database, config: AiConfig, decis
     delayImpl: options.delayImpl,
   });
 
-  const sourceIsTraceable = response.data.blog.sources.some((source) => source.url === decision.originalUrl);
+  phaseLogger({ phase: "normalization_start", operation: "editorial-kit", provider: config.provider, model: config.model, elapsedMs: Date.now() - started });
+  const normalized = normalizeGeneratedEditorialKitPayload(response.data);
+  phaseLogger({ phase: "normalization_end", operation: "editorial-kit", provider: config.provider, model: config.model, elapsedMs: Date.now() - started, status: "success" });
+  phaseLogger({ phase: "zod_final_validation_start", operation: "editorial-kit", provider: config.provider, model: config.model, elapsedMs: Date.now() - started });
+  let payload: EditorialKitPayload;
+  try {
+    payload = editorialKitPayloadSchema.parse(normalized);
+    phaseLogger({ phase: "zod_final_validation_end", operation: "editorial-kit", provider: config.provider, model: config.model, elapsedMs: Date.now() - started, status: "success" });
+  } catch (error) {
+    phaseLogger({ phase: "zod_final_validation_end", operation: "editorial-kit", provider: config.provider, model: config.model, elapsedMs: Date.now() - started, status: "failed" });
+    throw error;
+  }
+
+  const sourceIsTraceable = payload.blog.sources.some((source) => source.url === decision.originalUrl);
   if (!sourceIsTraceable) throw new Error("O Kit Editorial não preservou a fonte original rastreável.");
-  return response.data;
+  return payload;
+}
+
+export function normalizeGeneratedEditorialKitPayload(payload: EditorialKitRawPayload): EditorialKitPayload {
+  return {
+    blog: {
+      title: truncateWords(payload.blog.title, 180),
+      seoTitle: truncateSeoTitle(payload.blog.seoTitle, 70),
+      slug: normalizeSlug(payload.blog.slug, 140),
+      metaDescription: truncateProse(payload.blog.metaDescription, 170, 80, payload.blog.primaryKeyword),
+      primaryKeyword: truncateWords(payload.blog.primaryKeyword, 120),
+      secondaryKeywords: normalizeStringArray(payload.blog.secondaryKeywords, 8, 80),
+      excerpt: truncateProse(payload.blog.excerpt, 500, 80),
+      html: payload.blog.html.trim(),
+      category: truncateWords(payload.blog.category, 100),
+      tags: normalizeStringArray(payload.blog.tags, 8, 80),
+      sources: uniqueSources(payload.blog.sources, 6),
+    },
+    whatsapp: {
+      text: truncateProse(payload.whatsapp.text, 700, 400),
+    },
+  };
 }
 
 export async function createEditorialKit(db: Database, config: AiConfig, decision: EditorialDecision, options: GenerationOptions = {}) {
@@ -166,4 +204,100 @@ export function normalizeEditorialKitPayload(payload: unknown, context: Compatib
 
 function uniqueTerms(values: string[], ...fallbacks: string[]) {
   return [...new Set([...values, ...fallbacks].map((value) => value.trim()).filter(Boolean))].slice(0, 8);
+}
+
+function compactText(value: string) {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function truncateWords(value: string, maxLength: number) {
+  const compact = compactText(value);
+  if (compact.length <= maxLength) return compact;
+  const words = compact.split(" ");
+  const kept: string[] = [];
+  for (const word of words) {
+    const next = [...kept, word].join(" ");
+    if (next.length > maxLength) break;
+    kept.push(word);
+  }
+  return kept.join(" ").trim();
+}
+
+function truncateSeoTitle(value: string, maxLength: number) {
+  return truncateWords(value, maxLength).replace(/[\s,;:!?./\\|()\[\]{}–—-]+$/gu, "").trim();
+}
+
+function truncateProse(value: string, maxLength: number, minLength: number, preferredTerm?: string) {
+  const compact = compactText(value);
+  if (compact.length <= maxLength) return compact;
+  const limited = truncateWords(compact, maxLength);
+  const sentence = lastBoundary(limited, /[.!?](?=\s|$)/gu, minLength, true);
+  let result = sentence || lastBoundary(limited, /[;,](?=\s|$)/gu, minLength, false) || limited;
+  result = finishSentence(result, maxLength);
+
+  const term = compactText(preferredTerm ?? "");
+  if (term && compact.toLocaleLowerCase("pt-BR").includes(term.toLocaleLowerCase("pt-BR")) && !result.toLocaleLowerCase("pt-BR").includes(term.toLocaleLowerCase("pt-BR"))) {
+    const separator = " — ";
+    const available = maxLength - separator.length - term.length;
+    if (available >= minLength) result = `${finishSentence(truncateWords(result, available), available).replace(/[.]$/u, "")}${separator}${term}`;
+  }
+  return result;
+}
+
+function lastBoundary(value: string, pattern: RegExp, minLength: number, includeBoundary: boolean) {
+  const matches = [...value.matchAll(pattern)];
+  const last = matches.at(-1);
+  if (!last || last.index === undefined || last.index + 1 < minLength) return "";
+  return value.slice(0, last.index + (includeBoundary ? 1 : 0)).trim();
+}
+
+function finishSentence(value: string, maxLength: number) {
+  const cleaned = value.replace(/[\s,;:–—-]+$/gu, "").trim();
+  if (!cleaned || /[.!?]$/u.test(cleaned)) return cleaned;
+  if (cleaned.length < maxLength) return `${cleaned}.`;
+  const withoutLastWord = cleaned.replace(/\s+\S+$/u, "").trim();
+  return withoutLastWord ? `${withoutLastWord}.` : cleaned;
+}
+
+function normalizeSlug(value: string, maxLength: number) {
+  const words = value.normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLocaleLowerCase("pt-BR")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .split("-")
+    .filter(Boolean);
+  let slug = "";
+  for (const word of words) {
+    const next = slug ? `${slug}-${word}` : word;
+    if (next.length > maxLength) break;
+    slug = next;
+  }
+  return slug.replace(/-+$/g, "");
+}
+
+function normalizeStringArray(values: string[], maxItems: number, maxItemLength: number) {
+  const result: string[] = [];
+  const seen = new Set<string>();
+  for (const value of values) {
+    const normalized = truncateWords(value, maxItemLength);
+    const key = normalized.toLocaleLowerCase("pt-BR");
+    if (!normalized || seen.has(key)) continue;
+    result.push(normalized);
+    seen.add(key);
+    if (result.length === maxItems) break;
+  }
+  return result;
+}
+
+function uniqueSources(sources: EditorialKitRawPayload["blog"]["sources"], maxItems: number) {
+  const result: EditorialKitRawPayload["blog"]["sources"] = [];
+  const seen = new Set<string>();
+  for (const source of sources) {
+    if (seen.has(source.url)) continue;
+    result.push({ name: truncateWords(source.name, 180), url: source.url });
+    seen.add(source.url);
+    if (result.length === maxItems) break;
+  }
+  return result;
 }

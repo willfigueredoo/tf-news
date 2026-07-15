@@ -16,7 +16,7 @@ export type AiConfig = {
 
 type AiDb = Pick<Database, "prepare">;
 type FetchLike = typeof fetch;
-export type AiPhase = "request_start" | "provider_response" | "retry_wait" | "zod_validation_start" | "zod_validation_end" | "persistence_start" | "persistence_end";
+export type AiPhase = "request_start" | "provider_response" | "retry_wait" | "zod_validation_start" | "zod_validation_end" | "normalization_start" | "normalization_end" | "zod_final_validation_start" | "zod_final_validation_end" | "persistence_start" | "persistence_end";
 export type AiPhaseLog = { phase: AiPhase; operation: string; provider: string; model: string; elapsedMs: number; attempt?: number; delayMs?: number; status?: "success" | "failed" };
 export type AiPhaseLogger = (entry: AiPhaseLog) => void;
 type RetryPolicy = "default" | "high-demand";
