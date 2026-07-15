@@ -58,52 +58,45 @@ test("adapta saída estruturada ao Gemini sem expor a chave no corpo ou URL", as
     },
   };
   let captured;
+  const phases = [];
   const fetchImpl = async (url, init) => {
     captured = { url: String(url), init };
     return new Response(JSON.stringify({ responseId: "gemini-request", candidates: [{ content: { parts: [{ text: JSON.stringify({ answer: "decisão editorial" }) }] } }], usageMetadata: { promptTokenCount: 12, candidatesTokenCount: 6 } }), { status: 200, headers: { "Content-Type": "application/json" } });
   };
   const result = await runStructuredAi({
     db,
-    config: { provider: "gemini", apiKey: "secret-test-key", model: "gemini-2.5-flash", baseUrl: "https://generativelanguage.googleapis.com/v1beta", timeoutMs: 1000, maxRetries: 0, dailyCostLimitUsd: 5, dailyRequestLimit: 10, inputCostPerMillion: 0, outputCostPerMillion: 0 },
+    config: { provider: "gemini", apiKey: "secret-test-key", model: "gemini-3.5-flash", baseUrl: "https://generativelanguage.googleapis.com/v1beta", timeoutMs: 1000, maxRetries: 0, dailyCostLimitUsd: 5, dailyRequestLimit: 10, inputCostPerMillion: 0, outputCostPerMillion: 0 },
     operation: "editorial-kit",
     schemaName: "test_schema",
     schema: z.object({ answer: z.string() }),
     system: "Sistema",
     user: "Usuário",
     fetchImpl,
+    phaseLogger: (entry) => phases.push(entry),
   });
   assert.equal(result.data.answer, "decisão editorial");
-  assert.match(captured.url, /gemini-2\.5-flash:generateContent$/);
+  assert.match(captured.url, /gemini-3\.5-flash:generateContent$/);
   assert.doesNotMatch(captured.url, /secret-test-key/);
   assert.equal(captured.init.headers["x-goog-api-key"], "secret-test-key");
   assert.doesNotMatch(String(captured.init.body), /secret-test-key/);
+  const requestBody = JSON.parse(captured.init.body);
+  assert.deepEqual(Object.keys(requestBody).sort(), ["contents", "generationConfig", "systemInstruction"]);
+  assert.equal(requestBody.generationConfig.thinkingConfig.thinkingLevel, "minimal");
+  assert.equal(requestBody.generationConfig.candidateCount, 1);
+  assert.equal("tools" in requestBody, false);
+  assert.equal("toolConfig" in requestBody, false);
+  assert.deepEqual(phases.map((entry) => entry.phase), ["request_start", "provider_response", "zod_validation_start", "zod_validation_end"]);
   assert.ok(queries.some((query) => query.includes("ai_usage_logs")));
 });
 
-test("valida o Kit V1 somente com Blog SEO, WhatsApp e metadados", () => {
-  const payload = editorialKitPayloadSchema.parse({
-    metadata: { version: "v1", generatedAt: NOW.toISOString(), newsId: 1, sourceTitle: NEWS.title, sourceName: NEWS.sourceName, sourceUrl: NEWS.originalUrl, primaryIcp: NEWS.primaryIcp, editorialScore: 88 },
-    blog: {
-      title: NEWS.title,
-      seoTitle: "Expansão no agro amplia a demanda logística",
-      slug: "expansao-agro-demanda-logistica",
-      metaDescription: "Nova capacidade produtiva no agronegócio amplia desafios de armazenagem, transporte e planejamento logístico no Centro-Oeste brasileiro.",
-      primaryKeyword: "logística no agronegócio",
-      secondaryKeywords: ["transporte de cargas", "armazenagem"],
-      excerpt: "O novo investimento produtivo altera a demanda regional por armazenagem, transporte e fornecedores especializados em operações do agronegócio.",
-      html: `<p>${"Contexto jornalístico e análise logística. ".repeat(90)}</p>`,
-      category: "Agronegócio",
-      tags: ["agronegócio", "logística"],
-      cta: "Converse com a TransFAST para avaliar os impactos logísticos na sua operação.",
-      sources: [{ name: NEWS.sourceName, url: NEWS.originalUrl }],
-    },
-    whatsapp: { content: "A expansão anunciada para o agronegócio no Centro-Oeste deve elevar a movimentação de insumos e produtos na região. Para as empresas do segmento, o principal ponto de atenção é o planejamento de armazenagem, capacidade de transporte e previsibilidade dos fluxos, especialmente nos períodos de maior demanda. A mudança pode pressionar prazos e exigir rotas mais bem coordenadas entre fornecedores, fábricas e clientes. A TransFAST acompanha esses movimentos para apoiar operações que precisam ganhar segurança e eficiência logística. Se esse cenário impacta sua empresa, podemos conversar sobre alternativas para preparar a operação." },
-    linkedin: { content: "campo legado que deve ser descartado" },
-  });
-  assert.deepEqual(Object.keys(payload).sort(), ["blog", "metadata", "whatsapp"]);
-  assert.equal(payload.whatsapp.content.length >= 500, true);
-  assert.equal(EDITORIAL_KIT_MAX_OUTPUT_TOKENS, 3_600);
-  assert.equal(EDITORIAL_KIT_TIMEOUT_MS, 42_000);
+test("valida o Kit minimalista somente com Blog SEO e WhatsApp", () => {
+  const payload = editorialKitPayloadSchema.parse({ ...minimalPayload(), metadata: { legacy: true }, linkedin: { content: "campo descartado" } });
+  assert.deepEqual(Object.keys(payload).sort(), ["blog", "whatsapp"]);
+  assert.deepEqual(Object.keys(payload.whatsapp), ["text"]);
+  assert.equal(payload.whatsapp.text.length >= 400, true);
+  assert.equal(payload.whatsapp.text.length <= 700, true);
+  assert.equal(EDITORIAL_KIT_MAX_OUTPUT_TOKENS, 1_800);
+  assert.equal(EDITORIAL_KIT_TIMEOUT_MS, 54_000);
 });
 
 test("cancela a chamada com AbortController no timeout interno e registra a falha", async () => {
@@ -125,6 +118,7 @@ test("cancela a chamada com AbortController no timeout interno e registra a falh
     system: "Sistema",
     user: "Usuário",
     fetchImpl,
+    phaseLogger: () => {},
   }), /Timeout interno da IA após 20 ms/);
   assert.equal(aborted, true);
   assert.ok(queries.some((query) => query.includes("ai_usage_logs")));
@@ -137,8 +131,24 @@ test("não persiste Kit parcial quando a geração falha", async () => {
   await assert.rejects(createEditorialKit(db, aiConfig(), decision, {
     now: NOW,
     fetchImpl: async () => new Response(JSON.stringify({ error: { message: "falha controlada" } }), { status: 503, headers: { "Content-Type": "application/json" } }),
+    phaseLogger: () => {},
   }), /falha controlada/);
   assert.equal(queries.some((query) => query.includes("INSERT INTO editorial_kits")), false);
+});
+
+test("registra as fases e persiste somente depois da validação Zod", async () => {
+  const queries = [];
+  const phases = [];
+  const db = fakeAiDb(queries);
+  const decision = scoreEditorialOpportunity(NEWS, NOW);
+  const kit = await createEditorialKit(db, aiConfig({ model: "gemini-3.5-flash" }), decision, {
+    now: NOW,
+    phaseLogger: (entry) => phases.push(entry),
+    fetchImpl: async () => new Response(JSON.stringify({ responseId: "minimal-kit", candidates: [{ content: { parts: [{ text: JSON.stringify(minimalPayload()) }] } }], usageMetadata: { promptTokenCount: 200, candidatesTokenCount: 900 } }), { status: 200, headers: { "Content-Type": "application/json" } }),
+  });
+  assert.equal(kit.id, 123);
+  assert.deepEqual(phases.map((entry) => entry.phase), ["request_start", "provider_response", "zod_validation_start", "zod_validation_end", "persistence_start", "persistence_end"]);
+  assert.ok(queries.some((query) => query.includes("INSERT INTO editorial_kits")));
 });
 
 test("normaliza kits antigos para leitura sem alterar os dados persistidos", () => {
@@ -154,9 +164,21 @@ test("normaliza kits antigos para leitura sem alterar os dados persistidos", () 
   };
   const normalized = normalizeEditorialKitPayload(legacy, { newsId: 1, title: "Kit legado", primaryIcp: NEWS.primaryIcp, editorialScore: 88, createdAt: NOW.toISOString() });
   assert.equal(normalized.blog.seoTitle, "Título SEO legado");
-  assert.equal(normalized.whatsapp.content, "Mensagem comercial legada");
+  assert.equal(normalized.whatsapp.text, "Mensagem comercial legada");
   assert.equal("linkedin" in normalized, false);
   assert.equal(legacy.linkedin.content, "Conteúdo legado");
+});
+
+test("mantém compatibilidade de leitura com o payload Blog + WhatsApp anterior", () => {
+  const previous = {
+    metadata: { version: "v1" },
+    blog: { ...minimalPayload().blog, cta: "CTA da versão anterior" },
+    whatsapp: { content: minimalPayload().whatsapp.text },
+  };
+  const normalized = normalizeEditorialKitPayload(previous, { newsId: 1, title: "Kit anterior", primaryIcp: NEWS.primaryIcp, editorialScore: 88, createdAt: NOW.toISOString() });
+  assert.equal(normalized.whatsapp.text, previous.whatsapp.content);
+  assert.equal("cta" in normalized.blog, false);
+  assert.equal(previous.blog.cta, "CTA da versão anterior");
 });
 
 test("migration da Biblioteca é somente aditiva", async () => {
@@ -183,8 +205,27 @@ function fakeAiDb(queries) {
       return {
         bind() { return this; },
         async first() { return { requests: 0, cost: 0 }; },
-        async run() { return { results: [], meta: { changes: 1 } }; },
+        async run() { return { results: [], meta: { changes: 1, ...(query.includes("INSERT INTO editorial_kits") ? { last_row_id: 123 } : {}) } }; },
       };
     },
+  };
+}
+
+function minimalPayload() {
+  return {
+    blog: {
+      title: NEWS.title,
+      seoTitle: "Expansão no agro amplia a demanda logística",
+      slug: "expansao-agro-demanda-logistica",
+      metaDescription: "Nova capacidade produtiva no agronegócio amplia desafios de armazenagem, transporte e planejamento logístico no Centro-Oeste brasileiro.",
+      primaryKeyword: "logística no agronegócio",
+      secondaryKeywords: ["transporte de cargas", "armazenagem"],
+      excerpt: "O novo investimento produtivo altera a demanda regional por armazenagem, transporte e fornecedores especializados em operações do agronegócio.",
+      html: `<p>${"Contexto jornalístico e análise logística para empresas do setor. ".repeat(55)}</p>`,
+      category: "Agronegócio",
+      tags: ["agronegócio", "logística"],
+      sources: [{ name: NEWS.sourceName, url: NEWS.originalUrl }],
+    },
+    whatsapp: { text: "A expansão anunciada para o agronegócio no Centro-Oeste deve elevar a movimentação de insumos e produtos na região. Para as empresas do segmento, o ponto de atenção é o planejamento de armazenagem, capacidade de transporte e previsibilidade dos fluxos nos períodos de maior demanda. A mudança pode pressionar prazos e exigir rotas mais coordenadas entre fornecedores, fábricas e clientes. A TransFAST acompanha esses movimentos para apoiar operações que buscam segurança e eficiência logística. Se esse cenário impacta sua empresa, podemos conversar sobre alternativas para preparar a operação." },
   };
 }

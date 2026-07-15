@@ -11,7 +11,7 @@ export function getAiConfig() {
     apiKey: (provider === "gemini" ? process.env.GEMINI_API_KEY : process.env.AI_API_KEY)?.trim() ?? "",
     model: process.env.AI_MODEL?.trim() ?? "",
     baseUrl: (process.env.AI_BASE_URL?.trim() || defaultBaseUrl).replace(/\/+$/, ""),
-    timeoutMs: numberValue(process.env.AI_TIMEOUT_MS, 42_000),
+    timeoutMs: numberValue(process.env.AI_TIMEOUT_MS, 54_000),
     maxRetries: Math.min(3, Math.max(0, numberValue(process.env.AI_MAX_RETRIES, 0))),
     dailyCostLimitUsd: Math.max(0, numberValue(process.env.AI_DAILY_LIMIT_USD, 5)),
     dailyRequestLimit: Math.max(1, numberValue(process.env.AI_DAILY_REQUEST_LIMIT, 100)),

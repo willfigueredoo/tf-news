@@ -68,32 +68,21 @@ export const articlePayloadSchema = z.object({
 });
 
 export const editorialKitPayloadSchema = z.object({
-  metadata: z.object({
-    version: z.enum(["v1"]),
-    generatedAt: z.string().min(20).max(40),
-    newsId: z.number().int().positive(),
-    sourceTitle: z.string().min(10).max(500),
-    sourceName: z.string().min(2).max(180),
-    sourceUrl: z.string().url(),
-    primaryIcp: z.string().min(2).max(100),
-    editorialScore: z.number().int().min(0).max(100),
-  }),
   blog: z.object({
     title: z.string().min(10).max(180),
     seoTitle: z.string().min(10).max(70),
     slug: z.string().min(3).max(140),
     metaDescription: z.string().min(80).max(170),
     primaryKeyword: z.string().min(2).max(120),
-    secondaryKeywords: z.array(z.string().min(2).max(80)).min(2).max(10),
+    secondaryKeywords: z.array(z.string().min(2).max(80)).min(1).max(8),
     excerpt: z.string().min(80).max(500),
-    html: z.string().min(2500).max(30_000),
+    html: z.string().min(1800).max(20_000),
     category: z.string().min(2).max(100),
-    tags: z.array(z.string().min(2).max(80)).min(2).max(12),
-    cta: z.string().min(20).max(500),
-    sources: z.array(z.object({ name: z.string().min(2).max(180), url: z.string().url() })).min(1).max(10),
+    tags: z.array(z.string().min(2).max(80)).min(1).max(8),
+    sources: z.array(z.object({ name: z.string().min(2).max(180), url: z.string().url() })).min(1).max(6),
   }),
   whatsapp: z.object({
-    content: z.string().min(500).max(900),
+    text: z.string().min(400).max(700),
   }),
 });
 

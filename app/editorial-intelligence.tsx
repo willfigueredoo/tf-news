@@ -17,9 +17,8 @@ type Intelligence = {
 };
 type Kit = { id: number; newsItemId: number; title: string; primaryIcp: string; editorialScore: number; provider: string; model: string; payload: KitPayload; status: string; archivedAt: string | null; createdAt: string; updatedAt: string };
 type KitPayload = {
-  metadata: { version: "v1"; generatedAt: string; newsId: number; sourceTitle: string; sourceName: string; sourceUrl: string; primaryIcp: string; editorialScore: number };
-  blog: { title: string; seoTitle: string; slug: string; metaDescription: string; primaryKeyword: string; secondaryKeywords: string[]; excerpt: string; html: string; category: string; tags: string[]; cta: string; sources: Array<{ name: string; url: string }> };
-  whatsapp: { content: string };
+  blog: { title: string; seoTitle: string; slug: string; metaDescription: string; primaryKeyword: string; secondaryKeywords: string[]; excerpt: string; html: string; category: string; tags: string[]; sources: Array<{ name: string; url: string }> };
+  whatsapp: { text: string };
 };
 
 export function EditorialIntelligence({ mode, aiConfigured, focusNewsId, onMonitor, notify }: { mode: "overview" | "library" | "radar" | "insights"; aiConfigured: boolean; focusNewsId?: number | null; onMonitor: () => void; notify: (message: string) => void }) {
@@ -116,7 +115,7 @@ function KitDrawer({ kit, onClose }: { kit: Kit; onClose: () => void }) {
 
 function KitChannel({ channel, payload }: { channel: string; payload: KitPayload }) {
   if (channel === "Blog SEO") return <div className="kit-copy"><h3>{payload.blog.title}</h3><p>{payload.blog.metaDescription}</p><code>/{payload.blog.slug}</code><div className="kit-html" dangerouslySetInnerHTML={{ __html: payload.blog.html }} /></div>;
-  return <div className="kit-copy"><h3>WhatsApp Comercial</h3><p className="pre-wrap">{payload.whatsapp.content}</p></div>;
+  return <div className="kit-copy"><h3>WhatsApp Comercial</h3><p className="pre-wrap">{payload.whatsapp.text}</p></div>;
 }
 
 function exportKit(kit: Kit) {

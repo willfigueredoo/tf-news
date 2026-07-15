@@ -49,7 +49,7 @@ Consulte `DEPLOYMENT.md` para a configuração da Vercel, variáveis, migration 
 
 - IA, WordPress e coleta cron reais dependem das respectivas variáveis no ambiente hospedado;
 - o provedor editorial atual é Gemini e o modelo é definido por `AI_MODEL` no runtime;
-- a geração V1 usa no máximo 3.600 tokens de saída, uma tentativa e timeout interno efetivo de até 42 segundos;
+- a geração V1 usa no máximo 1.800 tokens de saída, `thinkingLevel: minimal`, uma tentativa e timeout interno efetivo de até 54 segundos;
 - LinkedIn, Newsletter, Reels e geração de imagem estão fora do fluxo ativo e permanecem no backlog futuro;
 - a migration aditiva `0002_overjoyed_gideon.sql` da Biblioteca Editorial foi aplicada e validada no Neon de produção em 15/07/2026;
 - o teste automatizado do WordPress é mockado; um draft real só pode ser confirmado com credenciais autorizadas;

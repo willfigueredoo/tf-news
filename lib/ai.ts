@@ -16,6 +16,9 @@ export type AiConfig = {
 
 type AiDb = Pick<Database, "prepare">;
 type FetchLike = typeof fetch;
+export type AiPhase = "request_start" | "provider_response" | "zod_validation_start" | "zod_validation_end" | "persistence_start" | "persistence_end";
+export type AiPhaseLog = { phase: AiPhase; operation: string; provider: string; model: string; elapsedMs: number; attempt?: number; status?: "success" | "failed" };
+export type AiPhaseLogger = (entry: AiPhaseLog) => void;
 type ProviderPayload = {
   id?: string;
   responseId?: string;
@@ -41,19 +44,23 @@ export async function runStructuredAi<T>(options: {
   user: string;
   maxOutputTokens?: number;
   fetchImpl?: FetchLike;
+  phaseLogger?: AiPhaseLogger;
 }): Promise<{ data: T; usage: { inputTokens: number; outputTokens: number; estimatedCostUsd: number }; requestId: string | null }> {
   const { db, config, operation, schemaName, schema, system, user } = options;
   if (!aiConfigured(config)) throw new Error("A integração de IA ainda não está configurada.");
   await assertDailyLimit(db, config);
 
   const fetchImpl = options.fetchImpl ?? fetch;
+  const phaseLogger = options.phaseLogger ?? logAiPhase;
   const started = Date.now();
   let lastError = "Falha desconhecida na IA.";
   for (let attempt = 0; attempt <= config.maxRetries; attempt += 1) {
     try {
       const jsonSchema = normalizeProviderSchema(z.toJSONSchema(schema, { target: "draft-7" }) as Record<string, unknown>);
       delete jsonSchema.$schema;
+      phaseLogger({ phase: "request_start", operation, provider: config.provider, model: config.model, elapsedMs: Date.now() - started, attempt: attempt + 1 });
       const response = await requestProvider(fetchImpl, config, { schemaName, jsonSchema, system, user, maxOutputTokens: options.maxOutputTokens ?? 1800 });
+      phaseLogger({ phase: "provider_response", operation, provider: config.provider, model: config.model, elapsedMs: Date.now() - started, attempt: attempt + 1 });
       const payload = await safeJson(response);
       if (!response.ok) {
         lastError = payload.error?.message || `A IA respondeu com status ${response.status}.`;
@@ -67,7 +74,15 @@ export async function runStructuredAi<T>(options: {
       if (refusal) throw new Error(`A IA recusou a solicitação: ${refusal}`);
       const outputText = extractOutputText(payload, config.provider);
       if (!outputText) throw new Error("A IA não retornou conteúdo estruturado.");
-      const data = schema.parse(JSON.parse(outputText));
+      phaseLogger({ phase: "zod_validation_start", operation, provider: config.provider, model: config.model, elapsedMs: Date.now() - started, attempt: attempt + 1 });
+      let data: T;
+      try {
+        data = schema.parse(JSON.parse(outputText));
+        phaseLogger({ phase: "zod_validation_end", operation, provider: config.provider, model: config.model, elapsedMs: Date.now() - started, attempt: attempt + 1, status: "success" });
+      } catch (error) {
+        phaseLogger({ phase: "zod_validation_end", operation, provider: config.provider, model: config.model, elapsedMs: Date.now() - started, attempt: attempt + 1, status: "failed" });
+        throw error;
+      }
       const inputTokens = payload.usage?.input_tokens ?? payload.usageMetadata?.promptTokenCount ?? 0;
       const outputTokens = payload.usage?.output_tokens ?? payload.usageMetadata?.candidatesTokenCount ?? 0;
       const estimatedCostUsd = estimateCost(inputTokens, outputTokens, config);
@@ -90,13 +105,20 @@ export async function runStructuredAi<T>(options: {
 async function requestProvider(fetchImpl: FetchLike, config: AiConfig, input: { schemaName: string; jsonSchema: Record<string, unknown>; system: string; user: string; maxOutputTokens: number }) {
   if (config.provider === "gemini") {
     const model = config.model.replace(/^models\//, "");
+    const thinkingConfig = /^gemini-3(?:[.-]|$)/i.test(model) ? { thinkingLevel: "minimal" } : undefined;
     return fetchWithTimeout(fetchImpl, `${config.baseUrl}/models/${encodeURIComponent(model)}:generateContent`, {
       method: "POST",
       headers: { "x-goog-api-key": config.apiKey, "Content-Type": "application/json" },
       body: JSON.stringify({
         systemInstruction: { parts: [{ text: input.system }] },
         contents: [{ role: "user", parts: [{ text: input.user }] }],
-        generationConfig: { responseMimeType: "application/json", responseJsonSchema: input.jsonSchema, maxOutputTokens: input.maxOutputTokens },
+        generationConfig: {
+          responseMimeType: "application/json",
+          responseJsonSchema: input.jsonSchema,
+          maxOutputTokens: input.maxOutputTokens,
+          candidateCount: 1,
+          ...(thinkingConfig ? { thinkingConfig } : {}),
+        },
       }),
     }, config.timeoutMs);
   }
@@ -111,6 +133,10 @@ async function requestProvider(fetchImpl: FetchLike, config: AiConfig, input: { 
       text: { format: { type: "json_schema", name: input.schemaName, strict: true, schema: input.jsonSchema } },
     }),
   }, config.timeoutMs);
+}
+
+export function logAiPhase(entry: AiPhaseLog) {
+  console.info("[ai-phase]", JSON.stringify(entry));
 }
 
 async function fetchWithTimeout(fetchImpl: FetchLike, url: string, init: RequestInit, timeoutMs: number) {
