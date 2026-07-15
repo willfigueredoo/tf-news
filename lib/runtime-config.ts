@@ -22,7 +22,7 @@ export function getWordPressConfig() {
   return {
     baseUrl: (process.env.WORDPRESS_BASE_URL?.trim() ?? "").replace(/\/+$/, ""),
     username: process.env.WORDPRESS_USERNAME?.trim() ?? "",
-    password: process.env.WORDPRESS_APPLICATION_PASSWORD ?? "",
+    password: process.env.WORDPRESS_APPLICATION_PASSWORD?.trim() ?? "",
   };
 }
 

@@ -31,8 +31,8 @@ export async function testWordPressConnection(config: WordPressConfig, fetchImpl
 export async function listWordPressTaxonomies(config: WordPressConfig, fetchImpl: FetchLike = fetch) {
   validateConfig(config);
   const [categoriesResponse, tagsResponse] = await Promise.all([
-    wpFetch(config, "/wp-json/wp/v2/categories?context=edit&per_page=100&orderby=name", { method: "GET" }, fetchImpl),
-    wpFetch(config, "/wp-json/wp/v2/tags?context=edit&per_page=100&orderby=name", { method: "GET" }, fetchImpl),
+    wpFetch(config, "/wp-json/wp/v2/categories?context=view&per_page=100&orderby=name", { method: "GET" }, fetchImpl),
+    wpFetch(config, "/wp-json/wp/v2/tags?context=view&per_page=100&orderby=name", { method: "GET" }, fetchImpl),
   ]);
   const schema = (value: unknown) => Array.isArray(value) ? value.map((item) => item as { id?: number; name?: string; slug?: string }).filter((item) => Number.isInteger(item.id) && item.name).map((item) => ({ id: item.id as number, name: item.name as string, slug: item.slug ?? "" })) : [];
   return { categories: schema(await categoriesResponse.json()), tags: schema(await tagsResponse.json()) };
