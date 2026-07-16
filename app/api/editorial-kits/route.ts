@@ -102,5 +102,13 @@ function tableAwareError(error: unknown, fallbackStatus = 500) {
   const message = error instanceof Error ? error.message : "Falha na Biblioteca Editorial.";
   const schemaPending = /editorial_kits|does not exist|undefined_table/i.test(message);
   const aiTimeout = /Timeout interno da IA/i.test(message);
-  return Response.json({ error: schemaPending ? "A migration aditiva da Biblioteca Editorial ainda não foi aplicada." : message, code: schemaPending ? "schema_pending" : aiTimeout ? "ai_timeout" : "request_failed" }, { status: schemaPending ? 503 : aiTimeout ? 504 : fallbackStatus });
+  const editorialPolicy = /política permanente de imparcialidade/i.test(message);
+  return Response.json({
+    error: schemaPending
+      ? "A migration aditiva da Biblioteca Editorial ainda não foi aplicada."
+      : editorialPolicy
+        ? "O conteúdo foi gerado, mas não passou pela validação de neutralidade editorial. Nenhuma informação foi salva."
+        : message,
+    code: schemaPending ? "schema_pending" : aiTimeout ? "ai_timeout" : editorialPolicy ? "editorial_policy_failed" : "request_failed",
+  }, { status: schemaPending ? 503 : aiTimeout ? 504 : editorialPolicy ? 422 : fallbackStatus });
 }
