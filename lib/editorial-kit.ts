@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { aiConfigured, logAiPhase, runStructuredAi, type AiConfig, type AiPhaseLogger } from "./ai.ts";
 import { editorialKitPayloadSchema, editorialKitRawPayloadSchema, type EditorialKitPayload, type EditorialKitRawPayload } from "./operational-schemas.ts";
-import { applyPermanentEditorialPolicy, assertEditorialImpartiality, EDITORIAL_TECHNICAL_EDITOR_PROMPT, findEditorialPolicyViolations } from "./editorial-policy.ts";
+import { applyPermanentEditorialPolicy, EDITORIAL_TECHNICAL_EDITOR_PROMPT } from "./editorial-policy.ts";
 import type { Database } from "../db/runtime.ts";
 import type { EditorialDecision } from "./editorial-intelligence.ts";
 
@@ -143,29 +143,10 @@ export async function generateEditorialKit(db: Database, config: AiConfig, decis
   });
 
   phaseLogger({ phase: "normalization_start", operation: "editorial-kit", provider: config.provider, model: config.model, elapsedMs: Date.now() - started });
-  let normalized: EditorialKitPayload | null = null;
-  try {
-    normalized = normalizeGeneratedEditorialKitPayload(response.data);
-    normalized.blog.sources = [traceableDecisionSource(decision)];
-    normalized.blog.html = applyPermanentEditorialPolicy(normalized.blog.html, normalized.blog.sources);
-    assertEditorialImpartiality({ html: normalized.blog.html, whatsapp: normalized.whatsapp.text });
-    phaseLogger({ phase: "normalization_end", operation: "editorial-kit", provider: config.provider, model: config.model, elapsedMs: Date.now() - started, status: "success" });
-  } catch (error) {
-    console.error("[ai-normalization-error]", JSON.stringify({
-      operation: "editorial-kit",
-      provider: config.provider,
-      model: config.model,
-      context: { newsId: decision.id, newsTitle: decision.title, sourceName: decision.sourceName },
-      error: error instanceof Error ? { name: error.name, message: error.message } : { message: String(error) },
-      violations: {
-        blog: normalized ? findEditorialPolicyViolations(normalized.blog.html) : [],
-        whatsapp: normalized ? findEditorialPolicyViolations(normalized.whatsapp.text) : [],
-      },
-    }));
-    phaseLogger({ phase: "normalization_end", operation: "editorial-kit", provider: config.provider, model: config.model, elapsedMs: Date.now() - started, status: "failed" });
-    throw error;
-  }
-  if (!normalized) throw new Error("A normalização editorial não produziu conteúdo válido.");
+  const normalized = normalizeGeneratedEditorialKitPayload(response.data);
+  normalized.blog.sources = [traceableDecisionSource(decision)];
+  normalized.blog.html = applyPermanentEditorialPolicy(normalized.blog.html, normalized.blog.sources);
+  phaseLogger({ phase: "normalization_end", operation: "editorial-kit", provider: config.provider, model: config.model, elapsedMs: Date.now() - started, status: "success" });
   phaseLogger({ phase: "zod_final_validation_start", operation: "editorial-kit", provider: config.provider, model: config.model, elapsedMs: Date.now() - started });
   let payload: EditorialKitPayload;
   try {
@@ -240,7 +221,6 @@ export function enforcePermanentEditorialPolicy(payload: EditorialKitPayload): E
       html: applyPermanentEditorialPolicy(buildGutenbergHtml(payload.blog), payload.blog.sources),
     },
   };
-  assertEditorialImpartiality({ html: governed.blog.html, whatsapp: governed.whatsapp.text });
   return editorialKitPayloadSchema.parse(governed);
 }
 

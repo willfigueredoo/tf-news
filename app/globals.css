@@ -186,7 +186,7 @@ h1 { margin: 0; color: var(--text-strong); font-size: clamp(29px, 3vw, 42px); fo
 
 .notice { margin-bottom: 15px; padding: 11px 14px; border: 1px solid rgba(227,6,19,.13); border-radius: 9px; background: var(--accent-soft); color: color-mix(in srgb, var(--accent) 78%, var(--text)); font-size: 10px; line-height: 1.45; }
 .governance-review_recommended { border-color: rgba(180,118,0,.2); background: rgba(180,118,0,.08); color: color-mix(in srgb, #b47600 72%, var(--text)); }
-.governance-confirmation_required { border-color: rgba(227,6,19,.2); background: var(--accent-soft); color: color-mix(in srgb, var(--accent) 78%, var(--text)); }
+.governance-additional_confirmation_recommended { border-color: rgba(180,118,0,.24); background: rgba(180,118,0,.1); color: color-mix(in srgb, #b47600 76%, var(--text)); }
 .toolbar { display: flex; flex-wrap: wrap; gap: 9px; margin-bottom: 13px; padding: 11px; }
 .search { min-width: 250px; flex: 1; border: 1px solid var(--border); border-radius: 8px; padding: 9px 12px; outline: none; background: var(--surface-soft); color: var(--text); font-size: 11px; transition: background-color .18s ease, border-color .18s ease, box-shadow .18s ease; }
 .search::placeholder { color: var(--muted-2); }

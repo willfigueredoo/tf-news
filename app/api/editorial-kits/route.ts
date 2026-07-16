@@ -29,12 +29,7 @@ export async function POST(request: Request) {
     const decision = buildEditorialIntelligence(news).newsOfTheDay;
     if (!decision) return Response.json({ error: "A notícia não está disponível para decisão editorial." }, { status: 409 });
     if (!decision.produceContent) {
-      if (decision.sourceGovernance.status === "confirmation_required") {
-        const now = new Date().toISOString();
-        await db.prepare("UPDATE news_items SET status = 'pending_confirmation', updated_at = ? WHERE id = ? AND manual_override = FALSE AND status NOT IN ('discarded', 'archived', 'used')").bind(now, decision.id).run();
-        return Response.json({ error: "Confirmação oficial obrigatória. Este tema exige uma fonte oficial antes da geração do conteúdo.", code: "official_confirmation_required" }, { status: 409 });
-      }
-      return Response.json({ error: "A notícia ainda não atende aos critérios editoriais para geração automática.", code: "editorial_criteria_not_met" }, { status: 409 });
+      return Response.json({ error: "A notícia não possui conteúdo e fonte válidos para gerar um Kit Editorial.", code: "invalid_editorial_input" }, { status: 422 });
     }
     const config = getAiConfig();
     const kit = await createEditorialKit(db, config, decision);
@@ -102,13 +97,10 @@ function tableAwareError(error: unknown, fallbackStatus = 500) {
   const message = error instanceof Error ? error.message : "Falha na Biblioteca Editorial.";
   const schemaPending = /editorial_kits|does not exist|undefined_table/i.test(message);
   const aiTimeout = /Timeout interno da IA/i.test(message);
-  const editorialPolicy = /política permanente de imparcialidade/i.test(message);
   return Response.json({
     error: schemaPending
       ? "A migration aditiva da Biblioteca Editorial ainda não foi aplicada."
-      : editorialPolicy
-        ? "O conteúdo foi gerado, mas não passou pela validação de neutralidade editorial. Nenhuma informação foi salva."
-        : message,
-    code: schemaPending ? "schema_pending" : aiTimeout ? "ai_timeout" : editorialPolicy ? "editorial_policy_failed" : "request_failed",
-  }, { status: schemaPending ? 503 : aiTimeout ? 504 : editorialPolicy ? 422 : fallbackStatus });
+      : message,
+    code: schemaPending ? "schema_pending" : aiTimeout ? "ai_timeout" : "request_failed",
+  }, { status: schemaPending ? 503 : aiTimeout ? 504 : fallbackStatus });
 }

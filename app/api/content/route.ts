@@ -1,8 +1,8 @@
 import { getRuntimeDb, rowsOf, type Database } from "../../../db/runtime";
 import { sanitizeWordPressHtml, slugify, validateArticleHtml } from "../../../lib/article-html";
 import { contentInputSchema } from "../../../lib/editorial";
-import { evaluateCoherence, generateArticleWithAi, generateBriefWithAi, requiresEditorialConfirmation, type EditorialNews } from "../../../lib/editorial-ai";
-import { applyPermanentEditorialPolicy, assertEditorialImpartiality } from "../../../lib/editorial-policy";
+import { evaluateCoherence, generateArticleWithAi, generateBriefWithAi, type EditorialNews } from "../../../lib/editorial-ai";
+import { applyPermanentEditorialPolicy } from "../../../lib/editorial-policy";
 import { briefPayloadSchema } from "../../../lib/operational-schemas";
 import { getAiConfig } from "../../../lib/runtime-config";
 
@@ -33,7 +33,6 @@ export async function POST(request: Request) {
       const sourceNews = await selectedNews(db, JSON.parse(current.news_ids) as number[]);
       const sources = sourceNews.map((source) => ({ name: source.sourceName, publisher: source.sourceName, title: source.title, url: source.originalUrl, sourceType: "not_classified", primaryOrSecondary: source.sourcePrimaryOrSecondary ?? "contextual", publishedAt: source.publishedAt }));
       const content = applyPermanentEditorialPolicy(sanitizeWordPressHtml(input.content), sources);
-      assertEditorialImpartiality({ html: content, whatsapp: "" });
       validateArticleHtml(content);
       const result = await db.prepare("UPDATE articles SET title = ?, content = ?, status = 'review', updated_at = ? WHERE id = ?").bind(input.title, content, new Date().toISOString(), input.articleId).run();
       if (!result.meta.changes) return Response.json({ error: "Artigo não encontrado." }, { status: 404 });
@@ -44,10 +43,6 @@ export async function POST(request: Request) {
     if (input.action === "brief") {
       const news = await selectedNews(db, input.newsIds);
       if (!news.length) return Response.json({ error: "Selecione ao menos uma notícia coletada para gerar o briefing." }, { status: 400 });
-      if (requiresEditorialConfirmation(news)) {
-        await db.prepare("UPDATE news_items SET status = 'pending_confirmation', updated_at = ? WHERE id = ? AND manual_override = FALSE").bind(new Date().toISOString(), news[0].id).run();
-        return Response.json({ error: "Confirmação oficial obrigatória. Este tema exige uma fonte oficial antes da geração do conteúdo.", code: "official_confirmation_required" }, { status: 409 });
-      }
       const coherence = await evaluateCoherence(db, config, news);
       if (!coherence.coherent && !input.allowDisconnected) {
         return Response.json({ error: "As notícias selecionadas tratam de eventos ou temas desconectados. Separe-as em conteúdos distintos.", coherence }, { status: 409 });

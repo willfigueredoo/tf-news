@@ -1,9 +1,8 @@
 import { aiConfigured, runStructuredAi, type AiConfig } from "./ai.ts";
 import { sanitizeWordPressHtml, validateArticleHtml } from "./article-html.ts";
 import { articlePayloadSchema, briefPayloadSchema, coherenceSchema, type ArticlePayload, type BriefPayload, type CoherencePayload } from "./operational-schemas.ts";
-import { applyPermanentEditorialPolicy, assertEditorialImpartiality, EDITORIAL_TECHNICAL_EDITOR_PROMPT } from "./editorial-policy.ts";
+import { applyPermanentEditorialPolicy, EDITORIAL_TECHNICAL_EDITOR_PROMPT } from "./editorial-policy.ts";
 import type { Database } from "../db/runtime.ts";
-import { requiresOfficialSourceConfirmation } from "./editorial-intelligence.ts";
 
 export type EditorialNews = {
   id: number;
@@ -23,12 +22,6 @@ export type EditorialNews = {
   sourceOfficial?: boolean;
   sourceRequiresCrossCheck?: boolean;
 };
-
-export function requiresEditorialConfirmation(news: EditorialNews[]) {
-  const hasOfficialSource = news.some((source) => source.sourceOfficial || (source.sourcePrimaryOrSecondary === "primary" && ["official", "regulator", "statistical"].includes(source.sourceType ?? "")));
-  if (hasOfficialSource) return false;
-  return news.some((source) => requiresOfficialSourceConfirmation(source));
-}
 
 export async function evaluateCoherence(db: Database, config: AiConfig, news: EditorialNews[]): Promise<CoherencePayload> {
   const deterministic = deterministicCoherence(news);
@@ -80,7 +73,6 @@ export async function generateArticleWithAi(db: Database, config: AiConfig, inpu
     primaryOrSecondary: "contextual",
     publishedAt: source.publishedAt,
   })));
-  assertEditorialImpartiality({ html: contentHtml, whatsapp: "" });
   validateArticleHtml(contentHtml);
   return articlePayloadSchema.parse({ ...response.data, contentHtml });
 }

@@ -2,12 +2,11 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { z } from "zod";
-import { buildEditorialIntelligence, scoreEditorialOpportunity } from "../lib/editorial-intelligence.ts";
+import { buildEditorialIntelligence, isValidEditorialInput, scoreEditorialOpportunity } from "../lib/editorial-intelligence.ts";
 import { AiProviderRequestError, normalizeProviderSchema, runStructuredAi } from "../lib/ai.ts";
 import { buildGutenbergHtml, createEditorialKit, EDITORIAL_KIT_MAX_OUTPUT_TOKENS, EDITORIAL_KIT_TIMEOUT_MS, normalizeEditorialKitPayload, normalizeGeneratedEditorialKitPayload } from "../lib/editorial-kit.ts";
 import { editorialKitPayloadSchema, editorialKitRawPayloadSchema, editorialKitUpdateSchema } from "../lib/operational-schemas.ts";
-import { applyPermanentEditorialPolicy, assertEditorialImpartiality, EDITORIAL_TECHNICAL_EDITOR_PROMPT } from "../lib/editorial-policy.ts";
-import { requiresEditorialConfirmation } from "../lib/editorial-ai.ts";
+import { applyPermanentEditorialPolicy, EDITORIAL_TECHNICAL_EDITOR_PROMPT, findEditorialPolicyViolations } from "../lib/editorial-policy.ts";
 
 const NOW = new Date("2026-07-15T12:00:00.000Z");
 const NEWS = {
@@ -72,11 +71,11 @@ test("permite Kit com fonte única de alta autoridade e recomenda revisão", () 
     const decision = scoreEditorialOpportunity({ ...NEWS, sourceName, sourceOfficial: false, sourcePrimaryOrSecondary: "secondary", sourceType: "press", sourceRequiresCrossCheck: true }, NOW);
     assert.equal(decision.produceContent, true, sourceName);
     assert.equal(decision.sourceGovernance.status, "review_recommended", sourceName);
-    assert.match(decision.sourceGovernance.notice, /única fonte de alta autoridade/i);
+    assert.equal(decision.sourceGovernance.notice, "Conteúdo baseado em uma única fonte. Revisão recomendada antes da publicação.");
   }
 });
 
-test("restringe confirmação obrigatória a tema oficial sem fonte oficial", () => {
+test("recomenda confirmação adicional para tema oficial sem bloquear a geração", () => {
   let pressDecision;
   for (const title of [
     "Medida provisória altera regras para o transporte de cargas",
@@ -97,29 +96,36 @@ test("restringe confirmação obrigatória a tema oficial sem fonte oficial", ()
       sourceType: "press",
       sourceRequiresCrossCheck: true,
     }, NOW);
-    assert.equal(pressDecision.produceContent, false, title);
-    assert.equal(pressDecision.sourceGovernance.status, "confirmation_required", title);
+    assert.equal(pressDecision.produceContent, true, title);
+    assert.equal(pressDecision.sourceGovernance.status, "additional_confirmation_recommended", title);
+    assert.equal(pressDecision.sourceGovernance.canGenerate, true, title);
     assert.match(pressDecision.sourceGovernance.notice, /fonte oficial/i);
   }
 
   const officialDecision = scoreEditorialOpportunity({ ...pressDecision, sourceName: "Diário Oficial da União", sourceOfficial: true, sourcePrimaryOrSecondary: "primary", sourceType: "official", sourceRequiresCrossCheck: false }, NOW);
   assert.equal(officialDecision.produceContent, true);
   assert.equal(officialDecision.sourceGovernance.status, "publishable");
-  assert.equal(requiresEditorialConfirmation([pressDecision]), true);
-  assert.equal(requiresEditorialConfirmation([pressDecision, officialDecision]), false);
 });
 
-test("política permanente exige imparcialidade, atribuição e fontes rastreáveis", () => {
+test("política permanente orienta imparcialidade sem bloquear heurísticas e preserva rastreabilidade", () => {
   assert.match(EDITORIAL_TECHNICAL_EDITOR_PROMPT, /Editor Técnico/);
   assert.match(EDITORIAL_TECHNICAL_EDITOR_PROMPT, /Nunca produza opiniões próprias/);
-  assert.throws(() => assertEditorialImpartiality({ html: "<p>O governo acertou. O setor cresceu 10%.</p>", whatsapp: "" }), /imparcialidade/);
-  assert.doesNotThrow(() => assertEditorialImpartiality({ html: "<p>Segundo o IBGE, o setor cresceu 10%. A CNT avaliou que a medida será positiva.</p>", whatsapp: "" }));
+  assert.ok(findEditorialPolicyViolations("<p>O governo acertou. O setor cresceu 10%.</p>").length > 0);
   const governed = applyPermanentEditorialPolicy("<h2>Contexto</h2><p>Segundo a fonte oficial, a medida pode alterar o fluxo.</p>", [{ name: "Órgão oficial", title: "Publicação original", url: "https://example.com/publicacao", sourceType: "official", primaryOrSecondary: "primary" }]);
   assert.match(governed, /Fontes consultadas/);
   assert.match(governed, /https:\/\/example\.com\/publicacao/);
   assert.match(governed, /Tipo: Official/);
   assert.match(governed, /Este conteúdo foi elaborado a partir de fontes oficiais/);
   assert.equal((governed.match(/data-tf-news-transparency/g) ?? []).length, 1);
+});
+
+test("aceita somente entradas editoriais com conteúdo, fonte e URL válidos", () => {
+  assert.equal(isValidEditorialInput(NEWS), true);
+  assert.equal(isValidEditorialInput({ ...NEWS, content: "", excerpt: "" }), false);
+  assert.equal(isValidEditorialInput({ ...NEWS, sourceName: "" }), false);
+  assert.equal(isValidEditorialInput({ ...NEWS, originalUrl: "javascript:alert(1)" }), false);
+  const lowScore = scoreEditorialOpportunity({ ...NEWS, relevanceScore: 1, logisticsImpact: "low" }, NOW);
+  assert.equal(lowScore.produceContent, true);
 });
 
 test("forma notícia do dia, Top 5, radar e insights sem IA automática", () => {
@@ -376,6 +382,29 @@ test("aguarda 5s e 10s em alta demanda, conclui na terceira tentativa e só ent�
   assert.ok(queries.some((query) => query.includes("INSERT INTO editorial_kits") && query.includes("INSERT INTO editorial_kit_sources")));
 });
 
+test("não bloqueia nem reescreve Kit válido por expressões editoriais permitidas", async () => {
+  const queries = [];
+  const payload = minimalPayload();
+  payload.blog.seoTitle = "Impactos da soja: o que muda para empresas";
+  payload.blog.blocks[0].heading = "Reflexos para o setor e pontos de atenção";
+  payload.blog.blocks[0].content = "A movimentação pode impactar os fluxos e pode afetar o planejamento das empresas. O cenário exige atenção aos dados divulgados pela fonte consultada, sem antecipar resultados.";
+  payload.whatsapp.text = "A movimentação da soja pode impactar os fluxos e pode afetar o planejamento das empresas. O cenário exige atenção aos dados divulgados pelo Canal Rural e aos possíveis reflexos para o setor. Na logística, vale acompanhar prazos, disponibilidade de transporte e comportamento das rotas, sem antecipar resultados. Se o tema fizer parte da sua operação, a TransFAST pode apoiar uma conversa objetiva sobre capacidade e planejamento para os próximos embarques.";
+  const decision = scoreEditorialOpportunity(FAILED_PRODUCTION_NEWS, NOW);
+
+  const kit = await createEditorialKit(fakeAiDb(queries), aiConfig({ model: "gemini-3.1-flash-lite" }), decision, {
+    now: NOW,
+    phaseLogger: () => {},
+    fetchImpl: async () => new Response(JSON.stringify({ responseId: "allowed-editorial-language", candidates: [{ content: { parts: [{ text: JSON.stringify(payload) }] } }], usageMetadata: { promptTokenCount: 200, candidatesTokenCount: 800 } }), { status: 200, headers: { "Content-Type": "application/json" } }),
+  });
+
+  assert.equal(kit.id, 123);
+  assert.equal(kit.newsItemId, FAILED_PRODUCTION_NEWS.id);
+  assert.match(kit.payload.blog.seoTitle, /Impactos/);
+  assert.match(kit.payload.blog.html, /pode impactar/);
+  assert.match(kit.payload.whatsapp.text, /pode afetar/);
+  assert.ok(queries.some((query) => query.includes("INSERT INTO editorial_kits") && query.includes("INSERT INTO editorial_kit_sources")));
+});
+
 test("encerra após a terceira resposta de alta demanda sem persistência parcial", async () => {
   const queries = [];
   const delays = [];
@@ -462,6 +491,8 @@ test("endpoint bloqueia geração paga antes de a Biblioteca existir", async () 
   assert.match(route, /validation_failed/);
   assert.match(route, /ai_invalid_argument/);
   assert.match(route, /diagnóstico técnico completo foi registrado/);
+  assert.match(route, /invalid_editorial_input/);
+  assert.doesNotMatch(route, /editorial_policy_failed|official_confirmation_required|pending_confirmation/);
 });
 
 function aiConfig(overrides = {}) {

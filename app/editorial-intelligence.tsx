@@ -25,7 +25,7 @@ type Decision = {
   logisticsReason: string;
   scoreBreakdown: Record<string, number>;
   sourceGovernance: {
-    status: "publishable" | "review_recommended" | "confirmation_required";
+    status: "publishable" | "review_recommended" | "additional_confirmation_recommended";
     label: string;
     canGenerate: boolean;
     signals: string[];
@@ -243,6 +243,9 @@ export function EditorialIntelligence({ mode, aiConfigured, wordpressBaseUrl, fo
     </>;
   }
 
+  const selectedKitGovernance = selectedKit
+    ? intelligence.all.find((item) => item.id === selectedKit.newsItemId)?.sourceGovernance ?? null
+    : null;
   const drawer = selectedKit && <KitDrawer
     key={selectedKit.id}
     kit={selectedKit}
@@ -252,6 +255,7 @@ export function EditorialIntelligence({ mode, aiConfigured, wordpressBaseUrl, fo
     onUpdate={updateKit}
     onDeleteRequest={setDeleteTarget}
     deleteConfirmationOpen={Boolean(deleteTarget)}
+    governance={selectedKitGovernance}
     notify={notify}
   />;
 
@@ -325,13 +329,12 @@ function ExecutiveOverview({ intelligence, featured, aiConfigured, libraryPendin
           <div><small>Fonte</small><p>{featured.sourceName} · {featured.region || "Abrangência nacional"}</p></div>
         </div>
         <div className="inline-actions story-actions">
-          <button className={`primary ${generating === featured.id ? "is-loading" : ""}`} disabled={!aiConfigured || libraryPending || generating !== null || !featured.produceContent} onClick={() => generateKit(featured.id)}>{generating === featured.id ? "Criando seu Kit…" : featured.sourceGovernance.status === "confirmation_required" ? "CONFIRMAÇÃO OBRIGATÓRIA" : "CRIAR CONTEÚDO"}</button>
+          <button className={`primary ${generating === featured.id ? "is-loading" : ""}`} disabled={!aiConfigured || libraryPending || generating !== null || !featured.produceContent} onClick={() => generateKit(featured.id)}>{generating === featured.id ? "Criando seu Kit…" : "CRIAR CONTEÚDO"}</button>
           <a className="secondary" href={featured.originalUrl} target="_blank" rel="noopener noreferrer">Abrir fonte original ↗</a>
         </div>
         {generation?.newsId === featured.id && <GenerationProgress step={generation.step} />}
         {!aiConfigured && <div className="notice kit-notice">A geração estará disponível assim que a inteligência editorial estiver configurada.</div>}
         {libraryPending && <div className="notice kit-notice">A Biblioteca precisa estar disponível para receber o Kit Editorial.</div>}
-        {featured.sourceGovernance.notice && <div className={`notice kit-notice governance-${featured.sourceGovernance.status}`}>{featured.sourceGovernance.notice}</div>}
       </div>
       <ScoreBreakdown decision={featured} />
     </section>}
@@ -341,7 +344,7 @@ function ExecutiveOverview({ intelligence, featured, aiConfigured, libraryPendin
         <span className="rank">0{index + 1}</span>
         <div><div className="content-title">{item.title}</div><div className="content-meta">{item.sourceName} · {item.primaryIcp}</div><p>{item.opportunity}</p></div>
         <span className={`score ${item.editorialScore >= 80 ? "priority" : ""}`}>{item.editorialScore}</span>
-        <button className="ghost" disabled={!aiConfigured || libraryPending || generating !== null || !item.produceContent} onClick={() => generateKit(item.id)}>{item.sourceGovernance.status === "confirmation_required" ? "Confirmar fonte oficial" : "Gerar kit"}</button>
+        <button className="ghost" disabled={!aiConfigured || libraryPending || generating !== null || !item.produceContent} onClick={() => generateKit(item.id)}>Gerar kit</button>
       </article>)}</div>
     </section>
     {drawer}
@@ -371,7 +374,7 @@ function ScoreBreakdown({ decision }: { decision: Decision }) {
     <h3>Por que esta notícia foi escolhida?</h3>
     <p className="score-summary">Quatro sinais concentram a força editorial desta pauta.</p>
     {reasons.map(([label, value]) => <div className="score-line" key={label}><span>{label}</span><div><i style={{ width: `${value}%` }} /></div><strong>{value}</strong></div>)}
-    <div className="source-confidence" aria-label="Confiabilidade das fontes"><strong>{decision.sourceGovernance.label}</strong>{decision.sourceGovernance.signals.map((signal) => <span key={signal}>{/recomendada|obrigatória/i.test(signal) ? "○" : "✓"} {signal}</span>)}</div>
+    <div className="source-confidence" aria-label="Confiabilidade das fontes"><strong>Confiabilidade das fontes</strong>{decision.sourceGovernance.signals.filter((signal) => !/recomendada/i.test(signal)).map((signal) => <span key={signal}>✓ {signal}</span>)}</div>
   </aside>;
 }
 
@@ -493,7 +496,7 @@ function Insights({ intelligence }: { intelligence: Intelligence }) {
   return <><div className="section-head"><div><div className="eyebrow">Leitura executiva</div><h1>Insights</h1><p className="subtitle">Alertas, tendências e oportunidades inferidas por regras transparentes sobre o monitoramento real.</p></div></div><div className="insight-grid">{intelligence.insights.map((item) => <article className={`card insight-card ${item.type}`} key={item.title}><span>{item.type === "alert" ? "Alerta" : item.type === "trend" ? "Tendência" : "Oportunidade"}</span><h2>{item.title}</h2><p>{item.description}</p></article>)}</div></>;
 }
 
-function KitDrawer({ kit, wordpressBaseUrl, onClose, onSave, onUpdate, onDeleteRequest, deleteConfirmationOpen, notify }: {
+function KitDrawer({ kit, wordpressBaseUrl, onClose, onSave, onUpdate, onDeleteRequest, deleteConfirmationOpen, governance, notify }: {
   kit: Kit;
   wordpressBaseUrl: string | null;
   onClose: () => void;
@@ -501,6 +504,7 @@ function KitDrawer({ kit, wordpressBaseUrl, onClose, onSave, onUpdate, onDeleteR
   onUpdate: (id: number, action: "archive" | "restore" | "duplicate") => Promise<void>;
   onDeleteRequest: (kit: Kit) => void;
   deleteConfirmationOpen: boolean;
+  governance: Decision["sourceGovernance"] | null;
   notify: (message: string) => void;
 }) {
   const [channel, setChannel] = useState<"Blog SEO" | "WhatsApp">("Blog SEO");
@@ -544,6 +548,7 @@ function KitDrawer({ kit, wordpressBaseUrl, onClose, onSave, onUpdate, onDeleteR
         <div><div className="eyebrow">Kit Editorial #{kit.id} · Revisão</div><h2>{draft.blog.seoTitle}</h2><div className="content-meta">{kit.primaryIcp} · score {kit.editorialScore}/100 · atualizado {formatDate(kit.updatedAt)}</div></div>
         <button className="theme-toggle" onClick={onClose} aria-label="Fechar">×</button>
       </div>
+      {governance?.notice && <div className={`notice kit-notice governance-${governance.status}`}><strong>{governance.label}</strong><br />{governance.notice}</div>}
       <div className="quick-actions" aria-label="Ações rápidas">
         <button onClick={() => void copy(`${draft.blog.title}\n\n${htmlToText(draftHtml)}`, "Blog")}>Copiar Blog</button>
         <button onClick={() => void copy(draftHtml, "HTML")}>Copiar HTML</button>

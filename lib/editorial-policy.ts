@@ -58,16 +58,6 @@ export function applyPermanentEditorialPolicy(html: string, sources: TraceableEd
   return `${base}\n${traceableSourcesHtml(sources)}\n${transparencyHtml()}`;
 }
 
-export function assertEditorialImpartiality(input: { html: string; whatsapp: string }) {
-  const violations = [
-    ...findEditorialPolicyViolations(input.html),
-    ...findEditorialPolicyViolations(input.whatsapp),
-  ];
-  if (violations.length) {
-    throw new Error(`O conteúdo não atende à política permanente de imparcialidade: ${[...new Set(violations)].join("; ")}.`);
-  }
-}
-
 export function findEditorialPolicyViolations(value: string) {
   const text = plainText(value);
   const sentences = text.split(/(?<=[.!?])\s+/u).map((sentence) => sentence.trim()).filter(Boolean);

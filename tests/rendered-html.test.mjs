@@ -26,7 +26,8 @@ test("mantém a experiência principal e remove o starter", async () => {
   assert.match(app, /Insights/);
   assert.match(app, /EditorialIntelligence/);
   assert.match(editorial, /Por que esta notícia foi escolhida/);
-  assert.match(editorial, /CONFIRMAÇÃO OBRIGATÓRIA/);
+  assert.match(editorial, /additional_confirmation_recommended/);
+  assert.doesNotMatch(editorial, /CONFIRMAÇÃO OBRIGATÓRIA/);
   assert.match(editorial, /Empresas potencialmente afetadas/);
   assert.match(editorial, /Selecionando notícia/);
   assert.match(editorial, /Gerando Blog/);
@@ -69,6 +70,7 @@ test("mantém a experiência principal e remove o starter", async () => {
   assert.match(css, /\.generation-progress/);
   assert.match(css, /\.kit-preview-frame/);
   assert.match(css, /\.governance-review_recommended/);
+  assert.match(css, /\.governance-additional_confirmation_recommended/);
   assert.match(css, /\.gutenberg-block/);
   assert.match(packageJson, /build:vercel/);
   assert.match(viteConfig, /nitro\/vite/);

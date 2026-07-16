@@ -40,8 +40,8 @@ export type EditorialDecision = IntelligenceNews & {
     sourceReliability: number;
   };
   sourceGovernance: {
-    status: "publishable" | "review_recommended" | "confirmation_required";
-    label: "Publicável" | "Revisão Recomendada" | "Confirmação Obrigatória";
+    status: "publishable" | "review_recommended" | "additional_confirmation_recommended";
+    label: "Publicável" | "Revisão recomendada" | "Confirmação adicional recomendada";
     canGenerate: boolean;
     signals: string[];
     notice: string | null;
@@ -128,7 +128,7 @@ export function scoreEditorialOpportunity(item: IntelligenceNews, now = new Date
   ));
   const classification = editorialScore >= 80 ? "very_relevant" : editorialScore >= 60 ? "relevant" : editorialScore >= 40 ? "low_priority" : "discard";
   const sourceGovernance = evaluateSourceGovernance(item);
-  const produceContent = editorialScore >= 60 && sourceGovernance.canGenerate && item.status !== "discarded" && item.status !== "archived";
+  const produceContent = isValidEditorialInput(item) && item.status !== "discarded" && item.status !== "archived";
   return {
     ...item,
     editorialScore,
@@ -137,8 +137,8 @@ export function scoreEditorialOpportunity(item: IntelligenceNews, now = new Date
     scoreBreakdown: { logistics, icpFit, economicImportance, sourceAuthority, sourceReliability, recency, commercialPotential, contentPotential, authorityPotential },
     sourceGovernance,
     decisionReason: `${classificationLabel(classification)}: aderência a ${item.primaryIcp}, impacto logístico ${impactLabel(item.logisticsImpact)}, confiabilidade das fontes ${sourceReliability}/100 e nível editorial ${sourceGovernance.label}.`,
-    opportunity: sourceGovernance.status === "confirmation_required"
-      ? "Localizar e vincular a publicação oficial antes de transformar o fato em conteúdo editorial."
+    opportunity: sourceGovernance.status === "additional_confirmation_recommended"
+      ? "Gerar o conteúdo com rastreabilidade e revisar a confirmação adicional recomendada antes da publicação."
       : produceContent
       ? `Transformar o fato em uma análise prática para ${item.primaryIcp}, explicando o que muda agora e quais decisões merecem atenção.`
       : "Manter no radar até surgir um sinal mais recente, relevante ou diretamente acionável.",
@@ -178,13 +178,13 @@ export function evaluateSourceGovernance(item: IntelligenceNews): EditorialDecis
   if (highAuthority) signals.push("Veículo de alta autoridade");
 
   if (officialConfirmationRequired) {
-    signals.push("Validação oficial obrigatória");
+    signals.push("Confirmação adicional recomendada");
     return {
-      status: "confirmation_required",
-      label: "Confirmação Obrigatória",
-      canGenerate: false,
+      status: "additional_confirmation_recommended",
+      label: "Confirmação adicional recomendada",
+      canGenerate: true,
       signals,
-      notice: "Este tema exige confirmação em fonte oficial antes da geração do conteúdo.",
+      notice: "A pauta pode ser gerada, mas recomenda-se conferir uma fonte oficial adicional antes da publicação.",
     };
   }
 
@@ -196,13 +196,22 @@ export function evaluateSourceGovernance(item: IntelligenceNews): EditorialDecis
   signals.push(item.sourceRequiresCrossCheck ? "Revisão cruzada recomendada" : "Fonte única — revisão recomendada");
   return {
     status: "review_recommended",
-    label: "Revisão Recomendada",
+    label: "Revisão recomendada",
     canGenerate: true,
     signals,
-    notice: highAuthority
-      ? "Conteúdo baseado em uma única fonte de alta autoridade. Recomenda-se revisão editorial antes da publicação."
-      : "Conteúdo baseado em uma única fonte. Recomenda-se revisão editorial antes da publicação.",
+    notice: "Conteúdo baseado em uma única fonte. Revisão recomendada antes da publicação.",
   };
+}
+
+export function isValidEditorialInput(item: Pick<IntelligenceNews, "title" | "excerpt" | "content" | "sourceName" | "originalUrl">) {
+  if (!item.title.trim() || !item.sourceName.trim()) return false;
+  if (!item.content.trim() && !item.excerpt.trim()) return false;
+  try {
+    const url = new URL(item.originalUrl);
+    return ["http:", "https:"].includes(url.protocol) && Boolean(url.hostname);
+  } catch {
+    return false;
+  }
 }
 
 export function requiresOfficialSourceConfirmation(item: Pick<IntelligenceNews, "title" | "excerpt" | "content" | "topics" | "sourceType" | "sourceOfficial" | "sourcePrimaryOrSecondary">) {
