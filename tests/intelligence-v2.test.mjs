@@ -36,23 +36,24 @@ const NEWS = {
 
 const FAILED_PRODUCTION_NEWS = {
   ...NEWS,
-  id: 70,
-  title: "Volume de serviços recua 0,4% em maio",
-  excerpt: "O volume de serviços recuou 0,4% em maio, segundo o IBGE.",
-  content: "Segundo o IBGE, o resultado mensal integra a Pesquisa Mensal de Serviços e deve ser interpretado com os dados oficiais publicados.",
-  sourceName: "Agência de Notícias IBGE",
-  originalUrl: "https://agenciadenoticias.ibge.gov.br/agencia-noticias/2012-agencia-de-noticias/noticias/volume-de-servicos-recua-em-maio",
-  primaryIcp: "Mercado e Logística",
-  secondaryIcps: [],
-  topics: ["serviços", "economia", "logística"],
-  region: "Brasil",
+  id: 32,
+  title: "Preços da soja sobem com Chicago em alta; confira as os números no Brasil",
+  excerpt: "Avanço das cotações internacionais, prêmios elevados e dólar praticamente estável garantiram a alta da oleaginosa.",
+  content: "Segundo o Canal Rural, a valorização da soja na Bolsa de Chicago, os prêmios firmes e o câmbio praticamente estável sustentaram os preços no mercado físico brasileiro.",
+  sourceName: "Canal Rural",
+  originalUrl: "https://www.canalrural.com.br/agricultura/projeto-soja-brasil/precos-da-soja-sobem-com-chicago-em-alta-confira-as-os-numeros-no-brasil/",
+  primaryIcp: "Agronegócio",
+  secondaryIcps: ["Aço", "Nutrição Animal"],
+  topics: ["safra", "aço", "portos"],
+  region: "Sul",
   logisticsImpact: "medium",
-  relevanceScore: 62,
-  sourceReliability: 98,
-  sourceType: "institutional",
+  relevanceScore: 80,
+  sourceReliability: 85,
+  sourceType: "press",
   sourceAuthorityLevel: "high",
-  sourcePrimaryOrSecondary: "primary",
-  sourceOfficial: true,
+  sourcePrimaryOrSecondary: "secondary",
+  sourceOfficial: false,
+  sourceRequiresCrossCheck: true,
 };
 
 test("prioriza uma oportunidade editorial real e explica o score", () => {
@@ -219,8 +220,8 @@ test("reproduz a notícia de produção e preserva o erro técnico completo do G
   const technicalLog = providerLogs.join("\n");
   assert.match(technicalLog, /INVALID_ARGUMENT/);
   assert.match(technicalLog, /exclusiveMinimum is not supported/);
-  assert.match(technicalLog, /"newsId":70/);
-  assert.match(technicalLog, /Volume de serviços recua 0,4% em maio/);
+  assert.match(technicalLog, /"newsId":32/);
+  assert.match(technicalLog, /Preços da soja sobem com Chicago em alta/);
   assert.match(technicalLog, /"x-goog-api-key":"\[REDACTED\]"/);
   assert.doesNotMatch(technicalLog, /test-key/);
 });
