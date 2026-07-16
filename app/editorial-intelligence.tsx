@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useDeferredValue, useEffect, useMemo, useState } from "react";
+import { useEscapeKey } from "../lib/use-escape-key";
 
 type Decision = {
   id: number;
@@ -454,6 +455,11 @@ function KitDrawer({ kit, wordpressBaseUrl, onClose, onSave, onUpdate, notify }:
   const [preview, setPreview] = useState(false);
   const [draft, setDraft] = useState<KitPayload>(() => clonePayload(kit.payload));
   const [saving, setSaving] = useState(false);
+
+  useEscapeKey(() => {
+    if (preview) setPreview(false);
+    else onClose();
+  });
 
   const dirty = useMemo(() => JSON.stringify(draft) !== JSON.stringify(kit.payload), [draft, kit.payload]);
 

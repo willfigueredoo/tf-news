@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { ICP_CATALOG } from "../lib/editorial";
+import { useEscapeKey } from "../lib/use-escape-key";
 
 type News = {
   id: number; title: string; originalUrl: string; sourceId: number; sourceName: string; domain?: string; author?: string | null;
@@ -43,6 +44,8 @@ export function MonitoringWorkspace(props: Props) {
   const [batchIcp, setBatchIcp] = useState("");
   const [batchTag, setBatchTag] = useState("");
   const [referenceTime] = useState(() => Date.now());
+
+  useEscapeKey(() => setDetail(null), Boolean(detail));
 
   useEffect(() => {
     window.sessionStorage.setItem("tf-news-monitoring-filters", JSON.stringify({ source, impact, topic, region, status, read, favorite, archived, minimum, period, sort }));
