@@ -5,7 +5,7 @@ import { z } from "zod";
 import { buildEditorialIntelligence, scoreEditorialOpportunity } from "../lib/editorial-intelligence.ts";
 import { runStructuredAi } from "../lib/ai.ts";
 import { createEditorialKit, EDITORIAL_KIT_MAX_OUTPUT_TOKENS, EDITORIAL_KIT_TIMEOUT_MS, normalizeEditorialKitPayload, normalizeGeneratedEditorialKitPayload } from "../lib/editorial-kit.ts";
-import { editorialKitPayloadSchema } from "../lib/operational-schemas.ts";
+import { editorialKitPayloadSchema, editorialKitUpdateSchema } from "../lib/operational-schemas.ts";
 
 const NOW = new Date("2026-07-15T12:00:00.000Z");
 const NEWS = {
@@ -97,6 +97,24 @@ test("valida o Kit minimalista somente com Blog SEO e WhatsApp", () => {
   assert.equal(payload.whatsapp.text.length <= 700, true);
   assert.equal(EDITORIAL_KIT_MAX_OUTPUT_TOKENS, 1_800);
   assert.equal(EDITORIAL_KIT_TIMEOUT_MS, 54_000);
+});
+
+test("aceita revisão completa do Kit existente sem alterar o schema do banco", () => {
+  const update = editorialKitUpdateSchema.parse({ id: 7, action: "save", payload: minimalPayload() });
+  assert.equal(update.action, "save");
+  assert.equal(update.id, 7);
+  assert.equal(update.payload.blog.seoTitle, minimalPayload().blog.seoTitle);
+  assert.throws(() => editorialKitUpdateSchema.parse({ id: 7, action: "save", payload: { blog: minimalPayload().blog } }));
+});
+
+test("orienta a experiência editorial para Blog de 450–550 palavras e WhatsApp natural", async () => {
+  const implementation = await readFile(new URL("../lib/editorial-kit.ts", import.meta.url), "utf8");
+  assert.match(implementation, /entre 450 e 550 palavras/);
+  assert.match(implementation, /resumo executivo, introdução, contexto, o que aconteceu, impacto para o mercado, impacto logístico, oportunidades, conclusão, CTA discreto e fontes/);
+  assert.match(implementation, /450 a 650 caracteres/);
+  assert.match(implementation, /sem tom promocional excessivo/);
+  assert.match(implementation, /EDITORIAL_KIT_TIMEOUT_MS = 54_000/);
+  assert.match(implementation, /retryPolicy: "high-demand"/);
 });
 
 test("normaliza comprimentos, slug e arrays sem cortar palavras", () => {
@@ -279,6 +297,9 @@ test("endpoint bloqueia geração paga antes de a Biblioteca existir", async () 
   const route = await readFile(new URL("../app/api/editorial-kits/route.ts", import.meta.url), "utf8");
   assert.ok(route.indexOf("to_regclass('public.editorial_kits')") < route.indexOf("createEditorialKit(db"));
   assert.match(route, /schema_pending/);
+  assert.match(route, /input\.action === "save"/);
+  assert.match(route, /UPDATE editorial_kits SET title = \?, payload = \?, updated_at = \? WHERE id = \?/);
+  assert.match(route, /validation_failed/);
 });
 
 function aiConfig(overrides = {}) {

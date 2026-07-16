@@ -111,10 +111,17 @@ export const editorialKitRequestSchema = z.object({
   newsId: z.number().int().positive(),
 });
 
-export const editorialKitUpdateSchema = z.object({
-  id: z.number().int().positive(),
-  action: z.enum(["archive", "restore", "duplicate"]),
-});
+export const editorialKitUpdateSchema = z.discriminatedUnion("action", [
+  z.object({
+    id: z.number().int().positive(),
+    action: z.enum(["archive", "restore", "duplicate"]),
+  }),
+  z.object({
+    id: z.number().int().positive(),
+    action: z.literal("save"),
+    payload: editorialKitPayloadSchema,
+  }),
+]);
 
 export type ClassificationPayload = z.infer<typeof classificationSchema>;
 export type CoherencePayload = z.infer<typeof coherenceSchema>;

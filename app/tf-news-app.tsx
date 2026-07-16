@@ -41,6 +41,7 @@ export function TFNewsApp({ userName, userEmail, initialUpdatedAt }: { userName:
   const [toast, setToast] = useState<string | null>(null);
   const [settingsTab, setSettingsTab] = useState("Fontes operacionais");
   const [wpConfigured, setWpConfigured] = useState(false);
+  const [wordpressBaseUrl, setWordpressBaseUrl] = useState<string | null>(null);
   const [aiStatus, setAiStatus] = useState<AiStatus | null>(null);
   const [logs, setLogs] = useState<OperationalLogs>({ jobs: [], ai: [] });
   const [dataError, setDataError] = useState<string | null>(null);
@@ -57,7 +58,11 @@ export function TFNewsApp({ userName, userEmail, initialUpdatedAt }: { userName:
       setNews(((await responses[0].json()) as { news: News[] }).news);
       setSources(((await responses[1].json()) as { sources: Source[] }).sources);
       setArticles(((await responses[2].json()) as { articles: Article[] }).articles);
-      if (responses[3].ok) setWpConfigured(((await responses[3].json()) as { configured: boolean }).configured);
+      if (responses[3].ok) {
+        const wordpress = await responses[3].json() as { configured: boolean; baseUrl: string | null };
+        setWpConfigured(wordpress.configured);
+        setWordpressBaseUrl(wordpress.baseUrl);
+      }
       if (responses[4].ok) setAiStatus(await responses[4].json() as AiStatus);
       if (responses[5].ok) setLogs(await responses[5].json() as OperationalLogs);
       setDataError(null);
@@ -144,11 +149,11 @@ export function TFNewsApp({ userName, userEmail, initialUpdatedAt }: { userName:
     <aside className="sidebar"><div className="brand"><img className="sidebar-logo" src="/brand/tf-news-icon.png" alt="TF News" width="56" height="56" loading="eager" decoding="async" /></div><div className="nav-label">Newsroom</div><nav className="nav" aria-label="Navegação principal">{VIEWS.map((item) => <button key={item.name} className={`nav-button ${view === item.name ? "active" : ""}`} onClick={() => chooseView(item.name)}><span className="nav-icon">{item.icon}</span>{item.name}</button>)}</nav><div className="sidebar-foot"><div className="live-status"><span className="live-dot" /> Monitoramento operacional</div><div className="source-meta" style={{ marginTop: 8 }}>{sources.length} fonte(s) cadastrada(s)</div></div></aside>
     <main className="main"><header className="topbar"><div className="header-context"><img className="header-logo" src="/brand/tf-news-horizontal.png" alt="TF News" width="126" height="63" loading="eager" decoding="async" /><div><div className="crumb">Inteligência editorial</div><div className="page-name">{view}<span className="update-time">Atualizado às {lastUpdated}</span></div></div></div><div className="top-actions"><select className="global-select" value={globalIcp} onChange={(event) => setGlobalIcp(event.target.value)} aria-label="Filtrar todo o sistema por ICP"><option>Todos os ICPs</option>{ICP_CATALOG.map((icp) => <option key={icp.slug}>{icp.name}</option>)}</select><button className="theme-toggle" onClick={toggleTheme} aria-label="Alternar entre modo claro e escuro" title="Alternar tema"><span className="theme-icon-light" aria-hidden="true">☼</span><span className="theme-icon-dark" aria-hidden="true">◐</span></button><div className="user-chip" title={userEmail}><div className="avatar">{initials(userName)}</div><div className="user-copy"><strong>{userName}</strong><span>Editor</span></div></div></div></header>
       <div className="content">{dataError && <div className="notice">{dataError}</div>}
-        {view === "Visão Executiva" && <EditorialIntelligence mode="overview" aiConfigured={Boolean(aiStatus?.configured)} focusNewsId={focusNewsId} onMonitor={() => chooseView("Monitoramento")} notify={notify} />}
+        {view === "Visão Executiva" && <EditorialIntelligence mode="overview" aiConfigured={Boolean(aiStatus?.configured)} wordpressBaseUrl={wordpressBaseUrl} focusNewsId={focusNewsId} onMonitor={() => chooseView("Monitoramento")} notify={notify} />}
         {view === "Monitoramento" && <MonitoringWorkspace news={filteredNews} sources={sources} selected={selected} search={search} setSearch={setSearch} toggleNews={toggleNews} toggleAll={(ids) => setSelected(new Set(ids))} startContent={startContent} refresh={refreshAll} notify={notify} busy={busy} setBusy={setBusy} aiConfigured={Boolean(aiStatus?.configured)} />}
-        {view === "Biblioteca" && <EditorialIntelligence mode="library" aiConfigured={Boolean(aiStatus?.configured)} onMonitor={() => chooseView("Monitoramento")} notify={notify} />}
-        {view === "Radar" && <EditorialIntelligence mode="radar" aiConfigured={Boolean(aiStatus?.configured)} onMonitor={() => chooseView("Monitoramento")} notify={notify} />}
-        {view === "Insights" && <EditorialIntelligence mode="insights" aiConfigured={Boolean(aiStatus?.configured)} onMonitor={() => chooseView("Monitoramento")} notify={notify} />}
+        {view === "Biblioteca" && <EditorialIntelligence mode="library" aiConfigured={Boolean(aiStatus?.configured)} wordpressBaseUrl={wordpressBaseUrl} onMonitor={() => chooseView("Monitoramento")} notify={notify} />}
+        {view === "Radar" && <EditorialIntelligence mode="radar" aiConfigured={Boolean(aiStatus?.configured)} wordpressBaseUrl={wordpressBaseUrl} onMonitor={() => chooseView("Monitoramento")} notify={notify} />}
+        {view === "Insights" && <EditorialIntelligence mode="insights" aiConfigured={Boolean(aiStatus?.configured)} wordpressBaseUrl={wordpressBaseUrl} onMonitor={() => chooseView("Monitoramento")} notify={notify} />}
         {view === "Criar Conteúdo" && <CreateContent selectedCount={liveSelected.length} brief={brief} article={article} setArticle={setArticle} objective={objective} setObjective={setObjective} keyword={keyword} setKeyword={setKeyword} busy={busy} aiConfigured={Boolean(aiStatus?.configured)} generateBrief={generateBrief} generateArticle={generateArticle} saveArticle={saveArticle} onChooseNews={() => chooseView("Monitoramento")} />}
         {view === "Conteúdos" && <Contents articles={articles} busy={busy} wpConfigured={wpConfigured} openArticle={(item) => { setArticle(item); chooseView("Criar Conteúdo"); }} sendWordPress={sendWordPress} />}
         {view === "Configurações" && <Settings tab={settingsTab} setTab={setSettingsTab} sources={sources} wpConfigured={wpConfigured} aiStatus={aiStatus} logs={logs} busy={busy} setBusy={setBusy} notify={notify} refresh={refreshAll} />}

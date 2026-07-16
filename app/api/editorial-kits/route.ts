@@ -1,4 +1,5 @@
 import { getRuntimeDb, rowsOf } from "../../../db/runtime";
+import { ZodError } from "zod";
 import { getAiConfig } from "../../../lib/runtime-config";
 import { editorialKitRequestSchema, editorialKitUpdateSchema } from "../../../lib/operational-schemas";
 import { buildEditorialIntelligence } from "../../../lib/editorial-intelligence";
@@ -36,6 +37,12 @@ export async function PATCH(request: Request) {
     const input = editorialKitUpdateSchema.parse(await request.json());
     const db = await getRuntimeDb();
     const now = new Date().toISOString();
+    if (input.action === "save") {
+      const result = await db.prepare("UPDATE editorial_kits SET title = ?, payload = ?, updated_at = ? WHERE id = ?")
+        .bind(input.payload.blog.seoTitle, JSON.stringify(input.payload), now, input.id).run();
+      if (!result.meta.changes) return Response.json({ error: "Kit Editorial não encontrado." }, { status: 404 });
+      return Response.json({ updated: true, updatedAt: now });
+    }
     if (input.action === "duplicate") {
       const result = await db.prepare("INSERT INTO editorial_kits (news_item_id, title, primary_icp, editorial_score, provider, model, payload, status, created_at, updated_at) SELECT news_item_id, title || ' — cópia', primary_icp, editorial_score, provider, model, payload, 'draft', ?, ? FROM editorial_kits WHERE id = ? RETURNING id").bind(now, now, input.id).run();
       if (!result.meta.last_row_id) return Response.json({ error: "Kit Editorial não encontrado." }, { status: 404 });
@@ -55,6 +62,7 @@ function toClientKit(row: KitRow) {
 }
 
 function tableAwareError(error: unknown, fallbackStatus = 500) {
+  if (error instanceof ZodError) return Response.json({ error: "Revise os campos do Kit. Há conteúdo obrigatório ausente ou fora dos limites editoriais.", code: "validation_failed" }, { status: 400 });
   const message = error instanceof Error ? error.message : "Falha na Biblioteca Editorial.";
   const schemaPending = /editorial_kits|does not exist|undefined_table/i.test(message);
   const aiTimeout = /Timeout interno da IA/i.test(message);
