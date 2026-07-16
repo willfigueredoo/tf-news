@@ -79,6 +79,11 @@ const editorialSourceSchema = z.object({
   publishedAt: z.string().min(10).max(40).nullable().optional(),
 });
 
+const editorialSourceRawSchema = z.object({
+  name: z.string().min(2).max(180),
+  url: z.string().url(),
+});
+
 const editorialSectionRawSchema = z.object({
   type: z.literal("section"),
   heading: z.string().min(1).max(500).refine(isSpecificEditorialHeading, "O H2 deve ser específico para a notícia."),
@@ -105,7 +110,7 @@ export const editorialKitRawPayloadSchema = z.object({
     conclusion: z.string().min(1).max(10_000).refine(isPlainEditorialText, "A conclusão deve ser texto, sem HTML."),
     category: z.string().min(1).max(2_000),
     tags: z.array(z.string()).max(100),
-    sources: z.array(editorialSourceSchema).min(1).max(20),
+    sources: z.array(editorialSourceRawSchema).min(1).max(6),
   }),
   whatsapp: z.object({
     text: z.string().min(1).max(10_000),

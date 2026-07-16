@@ -176,11 +176,13 @@ test("adapta saída estruturada ao Gemini sem expor a chave no corpo ou URL", as
 
 test("normaliza o JSON Schema editorial para o subconjunto aceito pelo Gemini", () => {
   const providerSchema = normalizeProviderSchema(z.toJSONSchema(editorialKitRawPayloadSchema, { target: "draft-7" }));
+  const positiveIntegerSchema = normalizeProviderSchema(z.toJSONSchema(z.object({ sourceId: z.number().int().positive() }), { target: "draft-7" }));
   const serialized = JSON.stringify(providerSchema);
-  const sourceId = providerSchema.properties.blog.properties.sources.items.properties.sourceId;
+  const sourceProperties = providerSchema.properties.blog.properties.sources.items.properties;
   const blockType = providerSchema.properties.blog.properties.blocks.items.properties.type;
 
-  assert.deepEqual(sourceId, { anyOf: [{ type: "integer", minimum: 1, maximum: 9007199254740991 }, { type: "null" }] });
+  assert.deepEqual(Object.keys(sourceProperties).sort(), ["name", "url"]);
+  assert.deepEqual(positiveIntegerSchema.properties.sourceId, { type: "integer", minimum: 1, maximum: 9007199254740991 });
   assert.deepEqual(blockType, { type: "string", enum: ["section"] });
   assert.doesNotMatch(serialized, /"(?:exclusiveMinimum|exclusiveMaximum|const|minLength|maxLength|pattern)"/);
   assert.match(serialized, /"response"|"blog"/);
