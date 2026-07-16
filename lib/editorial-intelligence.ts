@@ -40,10 +40,11 @@ export type EditorialDecision = IntelligenceNews & {
     sourceReliability: number;
   };
   sourceGovernance: {
-    status: "confirmed" | "pending_confirmation";
-    label: "Confirmada" | "Pendente de confirmação editorial";
+    status: "publishable" | "review_recommended" | "confirmation_required";
+    label: "Publicável" | "Revisão Recomendada" | "Confirmação Obrigatória";
     canGenerate: boolean;
     signals: string[];
+    notice: string | null;
   };
   decisionReason: string;
   opportunity: string;
@@ -72,6 +73,14 @@ export type EditorialIntelligence = {
 
 const ECONOMIC_TERMS = ["investimento", "bilhão", "milhão", "preço", "tarifa", "exportação", "importação", "produção", "demanda", "oferta", "mercado", "juros", "câmbio", "dólar", "emprego", "fábrica"];
 const COMMERCIAL_TERMS = ["cliente", "venda", "contrato", "expansão", "capacidade", "distribuição", "fornecedor", "competitividade", "custo", "margem", "oportunidade"];
+const HIGH_AUTHORITY_OUTLETS = ["canal rural", "globo rural", "noticias agricolas", "reuters", "valor economico", "broadcast", "agencia estado"];
+const OFFICIAL_CONFIRMATION_PATTERNS = [
+  /\b(?:leis?|projetos? de lei|medidas? provisorias?|resolucao|resolucoes|portarias?|decretos?|instrucao normativa|instrucoes normativas|atos? normativos?|regulamentacao)\b/,
+  /\bmp\s*(?:n\s*)?\d+\b/,
+  /\b(?:diario oficial|sancao|veto|licitacao|concessao|autorizacao governamental|ato governamental)\b/,
+  /\b(?:governo|ministerio|agencia reguladora|antt|anac|antaq|aneel|anp)\b.{0,60}\b(?:publica|aprova|autoriza|determina|suspende|regulamenta)\b/,
+  /\b(?:estatistica|dados estatisticos|censo|ipca|pib|indice oficial|indicador oficial|producao industrial)\b/,
+];
 
 export function buildEditorialIntelligence(news: IntelligenceNews[], now = new Date()): EditorialIntelligence {
   const decisions = news.map((item) => scoreEditorialOpportunity(item, now)).sort((a, b) => b.editorialScore - a.editorialScore || Date.parse(b.publishedAt) - Date.parse(a.publishedAt));
@@ -127,8 +136,10 @@ export function scoreEditorialOpportunity(item: IntelligenceNews, now = new Date
     produceContent,
     scoreBreakdown: { logistics, icpFit, economicImportance, sourceAuthority, sourceReliability, recency, commercialPotential, contentPotential, authorityPotential },
     sourceGovernance,
-    decisionReason: `${classificationLabel(classification)}: aderência a ${item.primaryIcp}, impacto logístico ${impactLabel(item.logisticsImpact)} e confiabilidade das fontes ${sourceReliability}/100.`,
-    opportunity: produceContent
+    decisionReason: `${classificationLabel(classification)}: aderência a ${item.primaryIcp}, impacto logístico ${impactLabel(item.logisticsImpact)}, confiabilidade das fontes ${sourceReliability}/100 e nível editorial ${sourceGovernance.label}.`,
+    opportunity: sourceGovernance.status === "confirmation_required"
+      ? "Localizar e vincular a publicação oficial antes de transformar o fato em conteúdo editorial."
+      : produceContent
       ? `Transformar o fato em uma análise prática para ${item.primaryIcp}, explicando o que muda agora e quais decisões merecem atenção.`
       : "Manter no radar até surgir um sinal mais recente, relevante ou diretamente acionável.",
     commercialImpact: commercialPotential >= 70
@@ -144,28 +155,73 @@ export function scoreEditorialOpportunity(item: IntelligenceNews, now = new Date
 
 function sourceReliabilityScore(item: IntelligenceNews) {
   let score = Math.round(item.sourceReliability * .55);
+  const highAuthority = isHighAuthorityOutlet(item);
   if (item.sourceAuthorityLevel === "high") score += 15;
   else if (item.sourceAuthorityLevel === "medium") score += 8;
   if (item.sourceOfficial) score += 10;
   if (item.sourcePrimaryOrSecondary === "primary") score += 10;
   if (item.sourceType === "statistical") score += 10;
-  if (item.sourcePrimaryOrSecondary === "secondary") score -= 20;
-  if (item.sourcePrimaryOrSecondary === "contextual" || !item.sourcePrimaryOrSecondary) score -= 15;
-  if (item.sourceRequiresCrossCheck) score -= 15;
+  if (item.sourcePrimaryOrSecondary === "secondary") score -= highAuthority ? 5 : 20;
+  if (item.sourcePrimaryOrSecondary === "contextual" || !item.sourcePrimaryOrSecondary) score -= highAuthority ? 8 : 15;
+  if (item.sourceRequiresCrossCheck) score -= highAuthority ? 5 : 15;
   return clamp(score);
 }
 
-function evaluateSourceGovernance(item: IntelligenceNews): EditorialDecision["sourceGovernance"] {
+export function evaluateSourceGovernance(item: IntelligenceNews): EditorialDecision["sourceGovernance"] {
   const signals: string[] = [];
   if (item.sourceOfficial) signals.push("Fonte oficial");
   if (item.sourcePrimaryOrSecondary === "primary") signals.push("Fonte primária");
   if (item.sourceType === "statistical") signals.push("Dados estatísticos");
-  const requiresConfirmation = !item.sourceOfficial && item.sourcePrimaryOrSecondary !== "primary";
-  if (!requiresConfirmation && !item.sourceRequiresCrossCheck) signals.push("Confirmação editorial suficiente");
-  if (requiresConfirmation || item.sourceRequiresCrossCheck) signals.push("Confirmação cruzada pendente");
-  return requiresConfirmation || Boolean(item.sourceRequiresCrossCheck)
-    ? { status: "pending_confirmation", label: "Pendente de confirmação editorial", canGenerate: false, signals }
-    : { status: "confirmed", label: "Confirmada", canGenerate: true, signals };
+  const officialValidation = hasOfficialValidation(item);
+  const officialConfirmationRequired = requiresOfficialSourceConfirmation(item);
+  const highAuthority = isHighAuthorityOutlet(item);
+  if (highAuthority) signals.push("Veículo de alta autoridade");
+
+  if (officialConfirmationRequired) {
+    signals.push("Validação oficial obrigatória");
+    return {
+      status: "confirmation_required",
+      label: "Confirmação Obrigatória",
+      canGenerate: false,
+      signals,
+      notice: "Este tema exige confirmação em fonte oficial antes da geração do conteúdo.",
+    };
+  }
+
+  if (officialValidation) {
+    signals.push("Validação oficial disponível");
+    return { status: "publishable", label: "Publicável", canGenerate: true, signals, notice: null };
+  }
+
+  signals.push(item.sourceRequiresCrossCheck ? "Revisão cruzada recomendada" : "Fonte única — revisão recomendada");
+  return {
+    status: "review_recommended",
+    label: "Revisão Recomendada",
+    canGenerate: true,
+    signals,
+    notice: highAuthority
+      ? "Conteúdo baseado em uma única fonte de alta autoridade. Recomenda-se revisão editorial antes da publicação."
+      : "Conteúdo baseado em uma única fonte. Recomenda-se revisão editorial antes da publicação.",
+  };
+}
+
+export function requiresOfficialSourceConfirmation(item: Pick<IntelligenceNews, "title" | "excerpt" | "content" | "topics" | "sourceType" | "sourceOfficial" | "sourcePrimaryOrSecondary">) {
+  const text = normalize(`${item.title} ${item.excerpt} ${item.content} ${item.topics.join(" ")}`);
+  const officialSubject = item.sourceType === "statistical" || OFFICIAL_CONFIRMATION_PATTERNS.some((pattern) => pattern.test(text));
+  return officialSubject && !hasOfficialValidation(item);
+}
+
+function hasOfficialValidation(item: Pick<IntelligenceNews, "sourceType" | "sourceOfficial" | "sourcePrimaryOrSecondary">) {
+  if (item.sourceOfficial) return true;
+  return item.sourcePrimaryOrSecondary === "primary" && ["official", "regulator", "statistical"].includes(item.sourceType ?? "");
+}
+
+function isHighAuthorityOutlet(item: Pick<IntelligenceNews, "sourceName" | "sourceReliability" | "sourceAuthorityLevel" | "sourceType">) {
+  const sourceName = normalize(item.sourceName);
+  const recognized = HIGH_AUTHORITY_OUTLETS.some((name) => sourceName.includes(name));
+  const authorityProfile = item.sourceAuthorityLevel === "high" && item.sourceReliability >= 75;
+  const trustedPress = ["press", "sector_press"].includes(item.sourceType ?? "") && item.sourceReliability >= 85;
+  return recognized || authorityProfile || trustedPress;
 }
 
 function buildRadar(news: IntelligenceNews[], now: Date) {

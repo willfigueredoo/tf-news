@@ -3,10 +3,11 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { z } from "zod";
 import { buildEditorialIntelligence, scoreEditorialOpportunity } from "../lib/editorial-intelligence.ts";
-import { runStructuredAi } from "../lib/ai.ts";
-import { createEditorialKit, EDITORIAL_KIT_MAX_OUTPUT_TOKENS, EDITORIAL_KIT_TIMEOUT_MS, normalizeEditorialKitPayload, normalizeGeneratedEditorialKitPayload } from "../lib/editorial-kit.ts";
-import { editorialKitPayloadSchema, editorialKitUpdateSchema } from "../lib/operational-schemas.ts";
+import { AiProviderRequestError, normalizeProviderSchema, runStructuredAi } from "../lib/ai.ts";
+import { buildGutenbergHtml, createEditorialKit, EDITORIAL_KIT_MAX_OUTPUT_TOKENS, EDITORIAL_KIT_TIMEOUT_MS, normalizeEditorialKitPayload, normalizeGeneratedEditorialKitPayload } from "../lib/editorial-kit.ts";
+import { editorialKitPayloadSchema, editorialKitRawPayloadSchema, editorialKitUpdateSchema } from "../lib/operational-schemas.ts";
 import { applyPermanentEditorialPolicy, assertEditorialImpartiality, EDITORIAL_TECHNICAL_EDITOR_PROMPT } from "../lib/editorial-policy.ts";
+import { requiresEditorialConfirmation } from "../lib/editorial-ai.ts";
 
 const NOW = new Date("2026-07-15T12:00:00.000Z");
 const NEWS = {
@@ -33,6 +34,27 @@ const NEWS = {
   sourceRequiresCrossCheck: false,
 };
 
+const FAILED_PRODUCTION_NEWS = {
+  ...NEWS,
+  id: 70,
+  title: "Volume de serviços recua 0,4% em maio",
+  excerpt: "O volume de serviços recuou 0,4% em maio, segundo o IBGE.",
+  content: "Segundo o IBGE, o resultado mensal integra a Pesquisa Mensal de Serviços e deve ser interpretado com os dados oficiais publicados.",
+  sourceName: "Agência de Notícias IBGE",
+  originalUrl: "https://agenciadenoticias.ibge.gov.br/agencia-noticias/2012-agencia-de-noticias/noticias/volume-de-servicos-recua-em-maio",
+  primaryIcp: "Mercado e Logística",
+  secondaryIcps: [],
+  topics: ["serviços", "economia", "logística"],
+  region: "Brasil",
+  logisticsImpact: "medium",
+  relevanceScore: 62,
+  sourceReliability: 98,
+  sourceType: "institutional",
+  sourceAuthorityLevel: "high",
+  sourcePrimaryOrSecondary: "primary",
+  sourceOfficial: true,
+};
+
 test("prioriza uma oportunidade editorial real e explica o score", () => {
   const decision = scoreEditorialOpportunity(NEWS, NOW);
   assert.ok(decision.editorialScore >= 80);
@@ -40,16 +62,50 @@ test("prioriza uma oportunidade editorial real e explica o score", () => {
   assert.equal(decision.produceContent, true);
   assert.match(decision.decisionReason, /Agronegócio/);
   assert.equal(Object.keys(decision.scoreBreakdown).length, 9);
-  assert.equal(decision.sourceGovernance.status, "confirmed");
+  assert.equal(decision.sourceGovernance.status, "publishable");
   assert.ok(decision.scoreBreakdown.sourceReliability >= 80);
 });
 
-test("impede geração automática com uma única fonte secundária", () => {
-  const decision = scoreEditorialOpportunity({ ...NEWS, sourceOfficial: false, sourcePrimaryOrSecondary: "secondary", sourceType: "press" }, NOW);
-  assert.equal(decision.produceContent, false);
-  assert.equal(decision.sourceGovernance.status, "pending_confirmation");
-  assert.match(decision.sourceGovernance.label, /Pendente de confirmação editorial/);
-  assert.ok(decision.scoreBreakdown.sourceReliability < scoreEditorialOpportunity(NEWS, NOW).scoreBreakdown.sourceReliability);
+test("permite Kit com fonte única de alta autoridade e recomenda revisão", () => {
+  for (const sourceName of ["Reuters", "Valor Econômico", "Canal Rural", "Globo Rural", "Notícias Agrícolas", "Broadcast Agro"]) {
+    const decision = scoreEditorialOpportunity({ ...NEWS, sourceName, sourceOfficial: false, sourcePrimaryOrSecondary: "secondary", sourceType: "press", sourceRequiresCrossCheck: true }, NOW);
+    assert.equal(decision.produceContent, true, sourceName);
+    assert.equal(decision.sourceGovernance.status, "review_recommended", sourceName);
+    assert.match(decision.sourceGovernance.notice, /única fonte de alta autoridade/i);
+  }
+});
+
+test("restringe confirmação obrigatória a tema oficial sem fonte oficial", () => {
+  let pressDecision;
+  for (const title of [
+    "Medida provisória altera regras para o transporte de cargas",
+    "MP 123 altera regras para o transporte de cargas",
+    "Nova resolução muda exigências regulatórias",
+    "Portaria estabelece procedimento para operadores",
+    "Lei redefine obrigações do setor",
+    "Estatística do PIB indica mudança na atividade",
+    "Ato governamental autoriza nova concessão",
+  ]) {
+    pressDecision = scoreEditorialOpportunity({
+      ...NEWS,
+      title,
+      content: `${title}. O conteúdo ainda depende de validação no texto oficial.`,
+      sourceName: "Reuters",
+      sourceOfficial: false,
+      sourcePrimaryOrSecondary: "secondary",
+      sourceType: "press",
+      sourceRequiresCrossCheck: true,
+    }, NOW);
+    assert.equal(pressDecision.produceContent, false, title);
+    assert.equal(pressDecision.sourceGovernance.status, "confirmation_required", title);
+    assert.match(pressDecision.sourceGovernance.notice, /fonte oficial/i);
+  }
+
+  const officialDecision = scoreEditorialOpportunity({ ...pressDecision, sourceName: "Diário Oficial da União", sourceOfficial: true, sourcePrimaryOrSecondary: "primary", sourceType: "official", sourceRequiresCrossCheck: false }, NOW);
+  assert.equal(officialDecision.produceContent, true);
+  assert.equal(officialDecision.sourceGovernance.status, "publishable");
+  assert.equal(requiresEditorialConfirmation([pressDecision]), true);
+  assert.equal(requiresEditorialConfirmation([pressDecision, officialDecision]), false);
 });
 
 test("política permanente exige imparcialidade, atribuição e fontes rastreáveis", () => {
@@ -118,6 +174,55 @@ test("adapta saída estruturada ao Gemini sem expor a chave no corpo ou URL", as
   assert.ok(queries.some((query) => query.includes("ai_usage_logs")));
 });
 
+test("normaliza o JSON Schema editorial para o subconjunto aceito pelo Gemini", () => {
+  const providerSchema = normalizeProviderSchema(z.toJSONSchema(editorialKitRawPayloadSchema, { target: "draft-7" }));
+  const serialized = JSON.stringify(providerSchema);
+  const sourceId = providerSchema.properties.blog.properties.sources.items.properties.sourceId;
+  const blockType = providerSchema.properties.blog.properties.blocks.items.properties.type;
+
+  assert.deepEqual(sourceId, { anyOf: [{ type: "integer", minimum: 1, maximum: 9007199254740991 }, { type: "null" }] });
+  assert.deepEqual(blockType, { type: "string", enum: ["section"] });
+  assert.doesNotMatch(serialized, /"(?:exclusiveMinimum|exclusiveMaximum|const|minLength|maxLength|pattern)"/);
+  assert.match(serialized, /"response"|"blog"/);
+});
+
+test("reproduz a notícia de produção e preserva o erro técnico completo do Gemini", async () => {
+  const decision = scoreEditorialOpportunity(FAILED_PRODUCTION_NEWS, NOW);
+  const providerLogs = [];
+  const originalConsoleError = console.error;
+  console.error = (...args) => providerLogs.push(args.join(" "));
+  try {
+    await assert.rejects(createEditorialKit(fakeAiDb([]), aiConfig({ model: "gemini-3.1-flash-lite", maxRetries: 0 }), decision, {
+      now: NOW,
+      phaseLogger: () => {},
+      fetchImpl: async () => new Response(JSON.stringify({
+        error: {
+          code: 400,
+          message: "Request contains an invalid argument.",
+          status: "INVALID_ARGUMENT",
+          details: [{ field: "generationConfig.responseJsonSchema", reason: "exclusiveMinimum is not supported" }],
+        },
+      }), { status: 400, headers: { "Content-Type": "application/json" } }),
+    }), (error) => {
+      assert.ok(error instanceof AiProviderRequestError);
+      assert.equal(error.httpStatus, 400);
+      assert.equal(error.providerStatus, "INVALID_ARGUMENT");
+      assert.deepEqual(error.details, [{ field: "generationConfig.responseJsonSchema", reason: "exclusiveMinimum is not supported" }]);
+      return true;
+    });
+  } finally {
+    console.error = originalConsoleError;
+  }
+
+  const technicalLog = providerLogs.join("\n");
+  assert.match(technicalLog, /INVALID_ARGUMENT/);
+  assert.match(technicalLog, /exclusiveMinimum is not supported/);
+  assert.match(technicalLog, /"newsId":70/);
+  assert.match(technicalLog, /Volume de serviços recua 0,4% em maio/);
+  assert.match(technicalLog, /"x-goog-api-key":"\[REDACTED\]"/);
+  assert.doesNotMatch(technicalLog, /test-key/);
+});
+
 test("valida o Kit minimalista somente com Blog SEO e WhatsApp", () => {
   const payload = editorialKitPayloadSchema.parse({ ...minimalPayload(), metadata: { legacy: true }, linkedin: { content: "campo descartado" } });
   assert.deepEqual(Object.keys(payload).sort(), ["blog", "whatsapp"]);
@@ -128,6 +233,18 @@ test("valida o Kit minimalista somente com Blog SEO e WhatsApp", () => {
   assert.equal(EDITORIAL_KIT_TIMEOUT_MS, 54_000);
 });
 
+test("modela o artigo como blocos Gutenberg sem repetir o título no corpo", () => {
+  const payload = minimalPayload();
+  const html = buildGutenbergHtml(payload.blog);
+  assert.equal(payload.blog.blocks.length, 4);
+  assert.equal((html.match(/<h2>/g) ?? []).length, 5);
+  assert.match(html, /^<p>/);
+  assert.match(html, /<h2>Conclusão<\/h2>/);
+  assert.doesNotMatch(html, new RegExp(payload.blog.title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i"));
+  assert.equal(payload.blog.blocks.some((block) => /^(Impacto Logístico|Impacto no Mercado|Oportunidades|Próximos Passos)$/i.test(block.heading)), false);
+  assert.throws(() => editorialKitPayloadSchema.parse({ ...payload, blog: { ...payload.blog, blocks: payload.blog.blocks.map((block, index) => index === 0 ? { ...block, heading: "Impacto Logístico" } : block) } }));
+});
+
 test("aceita revisão completa do Kit existente sem alterar o schema do banco", () => {
   const update = editorialKitUpdateSchema.parse({ id: 7, action: "save", payload: minimalPayload() });
   assert.equal(update.action, "save");
@@ -136,10 +253,13 @@ test("aceita revisão completa do Kit existente sem alterar o schema do banco", 
   assert.throws(() => editorialKitUpdateSchema.parse({ id: 7, action: "save", payload: { blog: minimalPayload().blog } }));
 });
 
-test("orienta a experiência editorial para Blog de 450–550 palavras e WhatsApp natural", async () => {
+test("orienta a experiência editorial para Gutenberg com arquitetura única e WhatsApp natural", async () => {
   const implementation = await readFile(new URL("../lib/editorial-kit.ts", import.meta.url), "utf8");
   assert.match(implementation, /entre 450 e 550 palavras/);
-  assert.match(implementation, /resumo executivo, introdução, contexto, o que aconteceu, impacto para o mercado, impacto logístico, oportunidades, conclusão, CTA discreto e fontes/);
+  assert.match(implementation, /entre 4 e 6 blocos/);
+  assert.match(implementation, /arquitetura editorial única/);
+  assert.match(implementation, /Não use headings genéricos como Impacto Logístico, Impacto no Mercado, Oportunidades ou Próximos Passos/);
+  assert.match(implementation, /nunca deve ser repetido na introdução, nos blocos ou na conclusão/);
   assert.match(implementation, /450 a 650 caracteres/);
   assert.match(implementation, /sem tom promocional excessivo/);
   assert.match(implementation, /EDITORIAL_KIT_TIMEOUT_MS = 54_000/);
@@ -235,7 +355,7 @@ test("aguarda 5s e 10s em alta demanda, conclui na terceira tentativa e só ent�
       overlong.blog.seoTitle = "Mercado de etanol amplia oportunidades logísticas para empresas brasileiras em 2026";
       overlong.blog.tags = ["Etanol", "etanol", "", "Logística"];
       overlong.blog.sources.push({ name: "Fonte inventada", url: "https://inventada.example/fonte" });
-      overlong.whatsapp.text = `${overlong.whatsapp.text} ${"A operação deve antecipar capacidade e rotas. ".repeat(8)}`;
+      overlong.whatsapp.text = `${overlong.whatsapp.text} ${"Segundo a fonte consultada, a operação deve acompanhar capacidade e rotas. ".repeat(8)}`;
       return new Response(JSON.stringify({ responseId: "minimal-kit", candidates: [{ content: { parts: [{ text: JSON.stringify(overlong) }] } }], usageMetadata: { promptTokenCount: 200, candidatesTokenCount: 900 } }), { status: 200, headers: { "Content-Type": "application/json" } });
     },
   });
@@ -273,10 +393,10 @@ test("encerra após a terceira resposta de alta demanda sem persistência parcia
   assert.equal(queries.some((query) => query.includes("INSERT INTO editorial_kits")), false);
 });
 
-test("rejeita estrutura ausente ou HTML inválido sem persistência parcial", async () => {
+test("rejeita estrutura ausente ou marcação insegura nos blocos sem persistência parcial", async () => {
   for (const invalidPayload of [
     { blog: minimalPayload().blog },
-    { ...minimalPayload(), blog: { ...minimalPayload().blog, html: `<script>alert("inválido")</script>${"texto ".repeat(400)}` } },
+    { ...minimalPayload(), blog: { ...minimalPayload().blog, blocks: minimalPayload().blog.blocks.map((block, index) => index === 0 ? { ...block, content: `<script>alert("inválido")</script>${block.content}` } : block) } },
   ]) {
     const queries = [];
     const db = fakeAiDb(queries);
@@ -316,6 +436,9 @@ test("mantém compatibilidade de leitura com o payload Blog + WhatsApp anterior"
   };
   const normalized = normalizeEditorialKitPayload(previous, { newsId: 1, title: "Kit anterior", primaryIcp: NEWS.primaryIcp, editorialScore: 88, createdAt: NOW.toISOString() });
   assert.equal(normalized.whatsapp.text, previous.whatsapp.content);
+  assert.ok(normalized.blog.introduction.length > 0);
+  assert.ok(normalized.blog.blocks.length >= 1);
+  assert.ok(normalized.blog.conclusion.length > 0);
   assert.equal("cta" in normalized.blog, false);
   assert.equal(previous.blog.cta, "CTA da versão anterior");
 });
@@ -334,6 +457,8 @@ test("endpoint bloqueia geração paga antes de a Biblioteca existir", async () 
   assert.match(route, /input\.action === "save"/);
   assert.match(route, /UPDATE editorial_kits SET title = \?, payload = \?, updated_at = \? WHERE id = \?/);
   assert.match(route, /validation_failed/);
+  assert.match(route, /ai_invalid_argument/);
+  assert.match(route, /diagnóstico técnico completo foi registrado/);
 });
 
 function aiConfig(overrides = {}) {
@@ -354,6 +479,14 @@ function fakeAiDb(queries) {
 }
 
 function minimalPayload() {
+  const introduction = "Segundo a fonte consultada, a expansão produtiva anunciada para o agronegócio no Centro-Oeste amplia a atenção sobre armazenagem, transporte e coordenação entre fornecedores. O movimento ocorre em uma região relevante para o escoamento da produção e exige leitura técnica dos efeitos operacionais já informados. Para empresas do setor, o dado central é a necessidade de acompanhar capacidade, prazos e integração logística sem antecipar consequências que ainda não foram confirmadas. A leitura editorial permanece vinculada aos dados publicados, ao cronograma informado e às atualizações rastreáveis da operação regional.";
+  const blocks = [
+    { type: "section", heading: "O que sustenta a nova capacidade produtiva", content: "Conforme divulgado pela fonte consultada, o investimento amplia a estrutura destinada à produção regional. A informação permite dimensionar o acontecimento, mas não autoriza projeções próprias sobre volume, receita ou participação de mercado. Esses indicadores dependem de dados posteriores da empresa e de órgãos setoriais." },
+    { type: "section", heading: "Como os fluxos regionais entram no planejamento", content: "A localização da operação conecta fornecedores, unidades produtivas, armazéns e destinos de distribuição. Segundo os dados disponíveis, o planejamento logístico deve considerar janelas de carregamento, capacidade de armazenagem e regularidade das rotas, sempre conforme a evolução efetivamente comunicada pela fonte original." },
+    { type: "section", heading: "Quais empresas precisam acompanhar o movimento", content: "Produtores, cooperativas, transportadores e operadores de armazenagem estão entre os agentes relacionados ao fluxo descrito. A notícia não confirma aumento automático de demanda para cada empresa, mas apresenta um fato relevante para o acompanhamento de contratos, disponibilidade operacional e coordenação entre elos da cadeia." },
+    { type: "section", heading: "Indicadores que ajudam a medir os próximos efeitos", content: "Os próximos comunicados sobre cronograma, capacidade utilizada, origem dos insumos e destinos da produção poderão oferecer parâmetros adicionais. Até que esses dados sejam publicados, a análise permanece vinculada às informações confirmadas e distingue claramente fato, contexto e expectativa atribuída às fontes consultadas." },
+  ];
+  const conclusion = "A expansão anunciada adiciona um novo elemento ao planejamento das cadeias do agronegócio no Centro-Oeste. O acompanhamento responsável depende de atualizações sobre cronograma e operação, além de dados que confirmem os efeitos sobre transporte e armazenagem. Segundo a fonte consultada, empresas relacionadas podem usar as informações confirmadas para revisar cenários internos, sem tratar estimativas ainda não publicadas como resultados realizados.";
   return {
     blog: {
       title: NEWS.title,
@@ -363,7 +496,10 @@ function minimalPayload() {
       primaryKeyword: "logística no agronegócio",
       secondaryKeywords: ["transporte de cargas", "armazenagem"],
       excerpt: "O novo investimento produtivo altera a demanda regional por armazenagem, transporte e fornecedores especializados em operações do agronegócio.",
-      html: `<h2>Contexto e impacto para o setor</h2><p>${"Contexto jornalístico e análise logística para empresas do setor. ".repeat(55)}</p>`,
+      introduction,
+      blocks,
+      conclusion,
+      html: buildGutenbergHtml({ introduction, blocks, conclusion }),
       category: "Agronegócio",
       tags: ["agronegócio", "logística"],
       sources: [{ name: NEWS.sourceName, url: NEWS.originalUrl }],

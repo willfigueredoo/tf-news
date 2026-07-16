@@ -3,6 +3,7 @@ import { sanitizeWordPressHtml, validateArticleHtml } from "./article-html.ts";
 import { articlePayloadSchema, briefPayloadSchema, coherenceSchema, type ArticlePayload, type BriefPayload, type CoherencePayload } from "./operational-schemas.ts";
 import { applyPermanentEditorialPolicy, assertEditorialImpartiality, EDITORIAL_TECHNICAL_EDITOR_PROMPT } from "./editorial-policy.ts";
 import type { Database } from "../db/runtime.ts";
+import { requiresOfficialSourceConfirmation } from "./editorial-intelligence.ts";
 
 export type EditorialNews = {
   id: number;
@@ -18,14 +19,15 @@ export type EditorialNews = {
   icps: string[];
   primaryIcp: string;
   sourcePrimaryOrSecondary?: "primary" | "secondary" | "contextual" | null;
+  sourceType?: string | null;
   sourceOfficial?: boolean;
   sourceRequiresCrossCheck?: boolean;
 };
 
 export function requiresEditorialConfirmation(news: EditorialNews[]) {
-  if (news.length !== 1) return false;
-  const source = news[0];
-  return Boolean(source.sourceRequiresCrossCheck) || (!source.sourceOfficial && source.sourcePrimaryOrSecondary !== "primary");
+  const hasOfficialSource = news.some((source) => source.sourceOfficial || (source.sourcePrimaryOrSecondary === "primary" && ["official", "regulator", "statistical"].includes(source.sourceType ?? "")));
+  if (hasOfficialSource) return false;
+  return news.some((source) => requiresOfficialSourceConfirmation(source));
 }
 
 export async function evaluateCoherence(db: Database, config: AiConfig, news: EditorialNews[]): Promise<CoherencePayload> {

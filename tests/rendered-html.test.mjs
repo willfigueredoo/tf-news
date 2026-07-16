@@ -26,6 +26,7 @@ test("mantém a experiência principal e remove o starter", async () => {
   assert.match(app, /Insights/);
   assert.match(app, /EditorialIntelligence/);
   assert.match(editorial, /Por que esta notícia foi escolhida/);
+  assert.match(editorial, /CONFIRMAÇÃO OBRIGATÓRIA/);
   assert.match(editorial, /Empresas potencialmente afetadas/);
   assert.match(editorial, /Selecionando notícia/);
   assert.match(editorial, /Gerando Blog/);
@@ -34,6 +35,11 @@ test("mantém a experiência principal e remove o starter", async () => {
   assert.match(editorial, /Fixar/);
   assert.match(editorial, /Copiar HTML/);
   assert.match(editorial, /Copiar Markdown/);
+  assert.match(editorial, /Artigo Gutenberg/);
+  assert.match(editorial, /Copiar Introdução/);
+  assert.match(editorial, /Copiar H2/);
+  assert.match(editorial, /Copiar Parágrafo/);
+  assert.match(editorial, /Copiar Conclusão/);
   assert.match(editorial, /Pré-visualizar/);
   assert.match(editorial, /Salvar revisão/);
   assert.match(editorial, /tf-news-library-preferences/);
@@ -62,6 +68,8 @@ test("mantém a experiência principal e remove o starter", async () => {
   assert.match(css, /\.library-grid/);
   assert.match(css, /\.generation-progress/);
   assert.match(css, /\.kit-preview-frame/);
+  assert.match(css, /\.governance-review_recommended/);
+  assert.match(css, /\.gutenberg-block/);
   assert.match(packageJson, /build:vercel/);
   assert.match(viteConfig, /nitro\/vite/);
   assert.doesNotMatch(viteConfig, /cloudflare|wrangler/i);

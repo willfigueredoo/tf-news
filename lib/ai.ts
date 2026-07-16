@@ -28,8 +28,30 @@ type ProviderPayload = {
   usage?: { input_tokens?: number; output_tokens?: number; total_tokens?: number };
   candidates?: Array<{ content?: { parts?: Array<{ text?: string }> }; finishReason?: string }>;
   usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number; totalTokenCount?: number };
-  error?: { message?: string };
+  error?: { code?: number; message?: string; status?: string; details?: unknown[] };
 };
+
+export class AiProviderRequestError extends Error {
+  readonly httpStatus: number;
+  readonly providerCode: number | null;
+  readonly providerStatus: string | null;
+  readonly details: unknown[];
+
+  constructor(
+    message: string,
+    httpStatus: number,
+    providerCode: number | null,
+    providerStatus: string | null,
+    details: unknown[],
+  ) {
+    super(message);
+    this.name = "AiProviderRequestError";
+    this.httpStatus = httpStatus;
+    this.providerCode = providerCode;
+    this.providerStatus = providerStatus;
+    this.details = details;
+  }
+}
 
 export function aiConfigured(config: AiConfig) {
   return ["openai", "gemini"].includes(config.provider) && Boolean(config.apiKey && config.model);
@@ -49,6 +71,7 @@ export async function runStructuredAi<T>(options: {
   retryPolicy?: RetryPolicy;
   retryDelaysMs?: number[];
   delayImpl?: (ms: number) => Promise<void>;
+  diagnosticContext?: Record<string, string | number | boolean | null>;
 }): Promise<{ data: T; usage: { inputTokens: number; outputTokens: number; estimatedCostUsd: number }; requestId: string | null }> {
   const { db, config, operation, schemaName, schema, system, user } = options;
   if (!aiConfigured(config)) throw new Error("A integração de IA ainda não está configurada.");
@@ -71,13 +94,33 @@ export async function runStructuredAi<T>(options: {
       const payload = await safeJson(response);
       if (!response.ok) {
         lastError = payload.error?.message || `A IA respondeu com status ${response.status}.`;
+        logProviderError({
+          operation,
+          provider: config.provider,
+          model: config.model,
+          attempt: attempt + 1,
+          httpStatus: response.status,
+          error: payload.error,
+          schemaName,
+          jsonSchema,
+          systemLength: system.length,
+          userLength: user.length,
+          maxOutputTokens: options.maxOutputTokens ?? 1800,
+          diagnosticContext: options.diagnosticContext,
+        });
         const retryDelay = responseRetryDelay(retryPolicy, response.status, lastError, attempt, config.maxRetries, options.retryDelaysMs);
         if (retryDelay !== null && (Date.now() - started) + retryDelay < config.timeoutMs) {
           phaseLogger({ phase: "retry_wait", operation, provider: config.provider, model: config.model, elapsedMs: Date.now() - started, attempt: attempt + 1, delayMs: retryDelay });
           await delayImpl(retryDelay);
           continue;
         }
-        throw new Error(lastError);
+        throw new AiProviderRequestError(
+          lastError,
+          response.status,
+          payload.error?.code ?? null,
+          payload.error?.status ?? null,
+          payload.error?.details ?? [],
+        );
       }
       const refusal = payload.output?.flatMap((item) => item.content ?? []).find((item) => item.refusal)?.refusal;
       if (refusal) throw new Error(`A IA recusou a solicitação: ${refusal}`);
@@ -105,6 +148,7 @@ export async function runStructuredAi<T>(options: {
         continue;
       }
       await logUsage(db, { operation, config, status: "failed", started, inputTokens: 0, outputTokens: 0, estimatedCostUsd: 0, requestId: null, error: lastError });
+      if (error instanceof AiProviderRequestError) throw error;
       throw new Error(lastError);
     }
   }
@@ -203,14 +247,90 @@ function responseRetryDelay(policy: RetryPolicy, status: number, message: string
   return retryable(status) ? 250 * 2 ** attempt : null;
 }
 
-function normalizeProviderSchema(value: unknown): Record<string, unknown> {
-  if (Array.isArray(value)) return value.map((item) => normalizeProviderSchema(item)) as unknown as Record<string, unknown>;
-  if (!value || typeof value !== "object") return value as Record<string, unknown>;
+const GEMINI_SCHEMA_KEYS = new Set([
+  "$id", "$defs", "$ref", "$anchor", "type", "format", "title", "description", "enum", "items", "prefixItems",
+  "minItems", "maxItems", "minimum", "maximum", "anyOf", "oneOf", "properties", "additionalProperties", "required", "propertyOrdering",
+]);
+const GEMINI_FORMATS = new Set(["date-time", "time", "date", "duration", "email", "hostname", "ipv4", "ipv6", "uuid"]);
+
+export function normalizeProviderSchema(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return normalizeSchemaNode(value as Record<string, unknown>);
+}
+
+function normalizeSchemaNode(value: Record<string, unknown>): Record<string, unknown> {
   const result: Record<string, unknown> = {};
-  for (const [key, nested] of Object.entries(value as Record<string, unknown>)) {
-    if (["minLength", "maxLength", "$schema"].includes(key)) continue;
-    if (key === "format" && !["date-time", "time", "date", "duration", "email", "hostname", "ipv4", "ipv6", "uuid"].includes(String(nested))) continue;
-    result[key] = Array.isArray(nested) ? nested.map((item) => typeof item === "object" && item !== null ? normalizeProviderSchema(item) : item) : typeof nested === "object" && nested !== null ? normalizeProviderSchema(nested) : nested;
+  const schemaType = value.type;
+
+  for (const [key, nested] of Object.entries(value)) {
+    if (key === "const") {
+      if (!("enum" in value)) result.enum = [nested];
+      continue;
+    }
+    if (key === "exclusiveMinimum") {
+      if (schemaType === "integer" && typeof nested === "number") result.minimum = Math.floor(nested) + 1;
+      continue;
+    }
+    if (key === "exclusiveMaximum") {
+      if (schemaType === "integer" && typeof nested === "number") result.maximum = Math.ceil(nested) - 1;
+      continue;
+    }
+    if (!GEMINI_SCHEMA_KEYS.has(key)) continue;
+    if (key === "format" && !GEMINI_FORMATS.has(String(nested))) continue;
+    if (key === "properties" || key === "$defs") {
+      result[key] = Object.fromEntries(Object.entries(nested as Record<string, unknown>).map(([name, child]) => [name, normalizeSchemaNode(child as Record<string, unknown>)]));
+      continue;
+    }
+    if (key === "items" || key === "additionalProperties") {
+      result[key] = typeof nested === "object" && nested !== null ? normalizeSchemaNode(nested as Record<string, unknown>) : nested;
+      continue;
+    }
+    if (key === "prefixItems" || key === "anyOf" || key === "oneOf") {
+      result[key] = Array.isArray(nested) ? nested.map((child) => normalizeSchemaNode(child as Record<string, unknown>)) : nested;
+      continue;
+    }
+    result[key] = nested;
   }
   return result;
+}
+
+function logProviderError(input: {
+  operation: string;
+  provider: string;
+  model: string;
+  attempt: number;
+  httpStatus: number;
+  error?: ProviderPayload["error"];
+  schemaName: string;
+  jsonSchema: Record<string, unknown>;
+  systemLength: number;
+  userLength: number;
+  maxOutputTokens: number;
+  diagnosticContext?: Record<string, string | number | boolean | null>;
+}) {
+  console.error("[ai-provider-error]", JSON.stringify({
+    operation: input.operation,
+    provider: input.provider,
+    model: input.model,
+    attempt: input.attempt,
+    httpStatus: input.httpStatus,
+    providerError: input.error ?? null,
+    request: {
+      endpoint: `/models/${input.model.replace(/^models\//, "")}:generateContent`,
+      headers: { "Content-Type": "application/json", "x-goog-api-key": "[REDACTED]" },
+      body: {
+        systemInstruction: `[REDACTED ${input.systemLength} chars]`,
+        contents: `[REDACTED ${input.userLength} chars]`,
+        generationConfig: {
+          responseMimeType: "application/json",
+          responseJsonSchema: input.jsonSchema,
+          maxOutputTokens: input.maxOutputTokens,
+          candidateCount: 1,
+          thinkingConfig: /^gemini-3(?:[.-]|$)/i.test(input.model) ? { thinkingLevel: "minimal" } : undefined,
+        },
+      },
+      schemaName: input.schemaName,
+    },
+    context: input.diagnosticContext ?? null,
+  }));
 }

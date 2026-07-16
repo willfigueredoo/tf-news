@@ -25,10 +25,11 @@ type Decision = {
   logisticsReason: string;
   scoreBreakdown: Record<string, number>;
   sourceGovernance: {
-    status: "confirmed" | "pending_confirmation";
+    status: "publishable" | "review_recommended" | "confirmation_required";
     label: string;
     canGenerate: boolean;
     signals: string[];
+    notice: string | null;
   };
 };
 
@@ -75,6 +76,9 @@ type KitPayload = {
     primaryKeyword: string;
     secondaryKeywords: string[];
     excerpt: string;
+    introduction: string;
+    blocks: Array<{ type: "section"; heading: string; content: string }>;
+    conclusion: string;
     html: string;
     category: string;
     tags: string[];
@@ -101,6 +105,8 @@ export function EditorialIntelligence({ mode, aiConfigured, wordpressBaseUrl, fo
   const [intelligence, setIntelligence] = useState<Intelligence | null>(null);
   const [kits, setKits] = useState<Kit[]>([]);
   const [selectedKit, setSelectedKit] = useState<Kit | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Kit | null>(null);
+  const [deletePending, setDeletePending] = useState(false);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState<number | null>(null);
   const [generation, setGeneration] = useState<GenerationState | null>(null);
@@ -202,6 +208,29 @@ export function EditorialIntelligence({ mode, aiConfigured, wordpressBaseUrl, fo
     setKits((current) => current.map(update));
     setSelectedKit((current) => current ? update(current) : current);
     notify("Revisão salva na Biblioteca.");
+    return savedPayload;
+  }
+
+  async function deleteKit() {
+    if (!deleteTarget || deletePending) return;
+    setDeletePending(true);
+    try {
+      const response = await fetch("/api/editorial-kits", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: deleteTarget.id, confirmation: "delete_permanently" }),
+      });
+      if (!response.ok) throw new Error("delete_failed");
+      const deletedId = deleteTarget.id;
+      setKits((current) => current.filter((kit) => kit.id !== deletedId));
+      setSelectedKit((current) => current?.id === deletedId ? null : current);
+      setDeleteTarget(null);
+      notify("Conteúdo excluído permanentemente.");
+    } catch {
+      notify("Não foi possível excluir o conteúdo. Nenhuma alteração foi realizada.");
+    } finally {
+      setDeletePending(false);
+    }
   }
 
   if (loading && !intelligence) {
@@ -221,13 +250,21 @@ export function EditorialIntelligence({ mode, aiConfigured, wordpressBaseUrl, fo
     onClose={() => setSelectedKit(null)}
     onSave={saveKit}
     onUpdate={updateKit}
+    onDeleteRequest={setDeleteTarget}
+    deleteConfirmationOpen={Boolean(deleteTarget)}
     notify={notify}
   />;
 
-  if (mode === "library") return <Library kits={kits} pending={libraryPending} onOpen={setSelectedKit} onUpdate={updateKit} selectedDrawer={drawer} />;
-  if (mode === "radar") return <Radar intelligence={intelligence} />;
-  if (mode === "insights") return <Insights intelligence={intelligence} />;
-  return <ExecutiveOverview
+  const deleteDialog = deleteTarget && <DeleteConfirmationModal
+    pending={deletePending}
+    onCancel={() => { if (!deletePending) setDeleteTarget(null); }}
+    onConfirm={() => void deleteKit()}
+  />;
+
+  if (mode === "library") return <><Library kits={kits} pending={libraryPending} onOpen={setSelectedKit} onUpdate={updateKit} onDeleteRequest={setDeleteTarget} selectedDrawer={drawer} />{deleteDialog}</>;
+  if (mode === "radar") return <><Radar intelligence={intelligence} />{deleteDialog}</>;
+  if (mode === "insights") return <><Insights intelligence={intelligence} />{deleteDialog}</>;
+  return <><ExecutiveOverview
     intelligence={intelligence}
     featured={featured}
     aiConfigured={aiConfigured}
@@ -237,7 +274,7 @@ export function EditorialIntelligence({ mode, aiConfigured, wordpressBaseUrl, fo
     generateKit={generateKit}
     onMonitor={onMonitor}
     drawer={drawer}
-  />;
+  />{deleteDialog}</>;
 }
 
 function ExecutiveOverview({ intelligence, featured, aiConfigured, libraryPending, generating, generation, generateKit, onMonitor, drawer }: {
@@ -288,13 +325,13 @@ function ExecutiveOverview({ intelligence, featured, aiConfigured, libraryPendin
           <div><small>Fonte</small><p>{featured.sourceName} · {featured.region || "Abrangência nacional"}</p></div>
         </div>
         <div className="inline-actions story-actions">
-          <button className={`primary ${generating === featured.id ? "is-loading" : ""}`} disabled={!aiConfigured || libraryPending || generating !== null || !featured.produceContent} onClick={() => generateKit(featured.id)}>{generating === featured.id ? "Criando seu Kit…" : featured.sourceGovernance.status === "pending_confirmation" ? "PENDENTE DE CONFIRMAÇÃO" : "CRIAR CONTEÚDO"}</button>
+          <button className={`primary ${generating === featured.id ? "is-loading" : ""}`} disabled={!aiConfigured || libraryPending || generating !== null || !featured.produceContent} onClick={() => generateKit(featured.id)}>{generating === featured.id ? "Criando seu Kit…" : featured.sourceGovernance.status === "confirmation_required" ? "CONFIRMAÇÃO OBRIGATÓRIA" : "CRIAR CONTEÚDO"}</button>
           <a className="secondary" href={featured.originalUrl} target="_blank" rel="noopener noreferrer">Abrir fonte original ↗</a>
         </div>
         {generation?.newsId === featured.id && <GenerationProgress step={generation.step} />}
         {!aiConfigured && <div className="notice kit-notice">A geração estará disponível assim que a inteligência editorial estiver configurada.</div>}
         {libraryPending && <div className="notice kit-notice">A Biblioteca precisa estar disponível para receber o Kit Editorial.</div>}
-        {featured.sourceGovernance.status === "pending_confirmation" && <div className="notice kit-notice">Pendente de confirmação editorial. Uma fonte primária ou uma confirmação independente é necessária antes da geração.</div>}
+        {featured.sourceGovernance.notice && <div className={`notice kit-notice governance-${featured.sourceGovernance.status}`}>{featured.sourceGovernance.notice}</div>}
       </div>
       <ScoreBreakdown decision={featured} />
     </section>}
@@ -304,7 +341,7 @@ function ExecutiveOverview({ intelligence, featured, aiConfigured, libraryPendin
         <span className="rank">0{index + 1}</span>
         <div><div className="content-title">{item.title}</div><div className="content-meta">{item.sourceName} · {item.primaryIcp}</div><p>{item.opportunity}</p></div>
         <span className={`score ${item.editorialScore >= 80 ? "priority" : ""}`}>{item.editorialScore}</span>
-        <button className="ghost" disabled={!aiConfigured || libraryPending || generating !== null || !item.produceContent} onClick={() => generateKit(item.id)}>{item.sourceGovernance.status === "pending_confirmation" ? "Confirmar fonte" : "Gerar kit"}</button>
+        <button className="ghost" disabled={!aiConfigured || libraryPending || generating !== null || !item.produceContent} onClick={() => generateKit(item.id)}>{item.sourceGovernance.status === "confirmation_required" ? "Confirmar fonte oficial" : "Gerar kit"}</button>
       </article>)}</div>
     </section>
     {drawer}
@@ -334,15 +371,16 @@ function ScoreBreakdown({ decision }: { decision: Decision }) {
     <h3>Por que esta notícia foi escolhida?</h3>
     <p className="score-summary">Quatro sinais concentram a força editorial desta pauta.</p>
     {reasons.map(([label, value]) => <div className="score-line" key={label}><span>{label}</span><div><i style={{ width: `${value}%` }} /></div><strong>{value}</strong></div>)}
-    <div className="source-confidence" aria-label="Confiabilidade das fontes">{decision.sourceGovernance.signals.map((signal) => <span key={signal}>{signal === "Confirmação cruzada pendente" ? "○" : "✓"} {signal}</span>)}</div>
+    <div className="source-confidence" aria-label="Confiabilidade das fontes"><strong>{decision.sourceGovernance.label}</strong>{decision.sourceGovernance.signals.map((signal) => <span key={signal}>{/recomendada|obrigatória/i.test(signal) ? "○" : "✓"} {signal}</span>)}</div>
   </aside>;
 }
 
-function Library({ kits, pending, onOpen, onUpdate, selectedDrawer }: {
+function Library({ kits, pending, onOpen, onUpdate, onDeleteRequest, selectedDrawer }: {
   kits: Kit[];
   pending: boolean;
   onOpen: (kit: Kit) => void;
   onUpdate: (id: number, action: "archive" | "restore" | "duplicate") => void;
+  onDeleteRequest: (kit: Kit) => void;
   selectedDrawer: React.ReactNode;
 }) {
   const [search, setSearch] = useState("");
@@ -375,7 +413,7 @@ function Library({ kits, pending, onOpen, onUpdate, selectedDrawer }: {
     const term = deferredSearch.trim().toLocaleLowerCase("pt-BR");
     return kits.filter((kit) => {
       const matchesSearch = !term || `${kit.title} ${kit.primaryIcp} ${kit.payload.blog.tags.join(" ")} ${kit.payload.blog.primaryKeyword}`.toLocaleLowerCase("pt-BR").includes(term);
-      const matchesFilter = filter === "all"
+      const matchesFilter = (filter === "all" && !kit.archivedAt)
         || (filter === "favorites" && preferences.favorites.includes(kit.id))
         || (filter === "pinned" && preferences.pinned.includes(kit.id))
         || (filter === "active" && !kit.archivedAt)
@@ -417,13 +455,14 @@ function Library({ kits, pending, onOpen, onUpdate, selectedDrawer }: {
       onPin={() => togglePreference("pinned", kit.id)}
       onOpen={() => onOpen(kit)}
       onUpdate={onUpdate}
+      onDelete={() => onDeleteRequest(kit)}
       key={kit.id}
     />) : <div className="card empty library-empty"><strong>Nenhum Kit encontrado</strong>{kits.length ? "Ajuste a pesquisa ou os filtros rápidos." : "Gere o primeiro Kit a partir da Notícia do Dia."}</div>}</div>
     {selectedDrawer}
   </>;
 }
 
-function LibraryItem({ kit, favorite, pinned, onFavorite, onPin, onOpen, onUpdate }: {
+function LibraryItem({ kit, favorite, pinned, onFavorite, onPin, onOpen, onUpdate, onDelete }: {
   kit: Kit;
   favorite: boolean;
   pinned: boolean;
@@ -431,6 +470,7 @@ function LibraryItem({ kit, favorite, pinned, onFavorite, onPin, onOpen, onUpdat
   onPin: () => void;
   onOpen: () => void;
   onUpdate: (id: number, action: "archive" | "restore" | "duplicate") => void;
+  onDelete: () => void;
 }) {
   return <article className={`card library-item ${kit.archivedAt ? "archived" : ""}`}>
     <div className="library-item-top">
@@ -441,7 +481,7 @@ function LibraryItem({ kit, favorite, pinned, onFavorite, onPin, onOpen, onUpdat
     <p>{kit.payload.blog.excerpt}</p>
     <div className="library-meta"><span>{kit.primaryIcp}</span><span>{kit.editorialScore}/100</span><span>{wordCount(kit.payload.blog.html)} palavras</span><span>{formatDate(kit.updatedAt)}</span></div>
     <div className="tags">{kit.payload.blog.tags.slice(0, 4).map((tag) => <span className="tag" key={tag}>{tag}</span>)}</div>
-    <div className="library-actions"><button className="secondary" onClick={onOpen}>Abrir editor</button><button className="ghost" onClick={() => onUpdate(kit.id, "duplicate")}>Duplicar</button><button className="ghost" onClick={() => onUpdate(kit.id, kit.archivedAt ? "restore" : "archive")}>{kit.archivedAt ? "Restaurar" : "Arquivar"}</button></div>
+    <div className="library-actions"><button className="secondary" onClick={onOpen}>Abrir editor</button><button className="ghost" onClick={() => onUpdate(kit.id, "duplicate")}>Duplicar</button><button className="ghost" onClick={() => onUpdate(kit.id, kit.archivedAt ? "restore" : "archive")}>{kit.archivedAt ? "Restaurar" : "Arquivar"}</button><button className="danger-ghost" onClick={onDelete}>Excluir conteúdo</button></div>
   </article>;
 }
 
@@ -453,12 +493,14 @@ function Insights({ intelligence }: { intelligence: Intelligence }) {
   return <><div className="section-head"><div><div className="eyebrow">Leitura executiva</div><h1>Insights</h1><p className="subtitle">Alertas, tendências e oportunidades inferidas por regras transparentes sobre o monitoramento real.</p></div></div><div className="insight-grid">{intelligence.insights.map((item) => <article className={`card insight-card ${item.type}`} key={item.title}><span>{item.type === "alert" ? "Alerta" : item.type === "trend" ? "Tendência" : "Oportunidade"}</span><h2>{item.title}</h2><p>{item.description}</p></article>)}</div></>;
 }
 
-function KitDrawer({ kit, wordpressBaseUrl, onClose, onSave, onUpdate, notify }: {
+function KitDrawer({ kit, wordpressBaseUrl, onClose, onSave, onUpdate, onDeleteRequest, deleteConfirmationOpen, notify }: {
   kit: Kit;
   wordpressBaseUrl: string | null;
   onClose: () => void;
-  onSave: (id: number, payload: KitPayload) => Promise<void>;
+  onSave: (id: number, payload: KitPayload) => Promise<KitPayload>;
   onUpdate: (id: number, action: "archive" | "restore" | "duplicate") => Promise<void>;
+  onDeleteRequest: (kit: Kit) => void;
+  deleteConfirmationOpen: boolean;
   notify: (message: string) => void;
 }) {
   const [channel, setChannel] = useState<"Blog SEO" | "WhatsApp">("Blog SEO");
@@ -469,14 +511,16 @@ function KitDrawer({ kit, wordpressBaseUrl, onClose, onSave, onUpdate, notify }:
   useEscapeKey(() => {
     if (preview) setPreview(false);
     else onClose();
-  });
+  }, !deleteConfirmationOpen);
 
   const dirty = useMemo(() => JSON.stringify(draft) !== JSON.stringify(kit.payload), [draft, kit.payload]);
+  const draftHtml = useMemo(() => buildDraftHtml(draft.blog), [draft.blog]);
 
   async function save() {
     setSaving(true);
     try {
-      await onSave(kit.id, draft);
+      const savedPayload = await onSave(kit.id, draft);
+      setDraft(clonePayload(savedPayload));
     } catch (error) {
       notify(error instanceof Error ? error.message : "Não foi possível salvar a revisão.");
     } finally {
@@ -501,24 +545,40 @@ function KitDrawer({ kit, wordpressBaseUrl, onClose, onSave, onUpdate, notify }:
         <button className="theme-toggle" onClick={onClose} aria-label="Fechar">×</button>
       </div>
       <div className="quick-actions" aria-label="Ações rápidas">
-        <button onClick={() => void copy(`${draft.blog.title}\n\n${htmlToText(draft.blog.html)}`, "Blog")}>Copiar Blog</button>
-        <button onClick={() => void copy(draft.blog.html, "HTML")}>Copiar HTML</button>
+        <button onClick={() => void copy(`${draft.blog.title}\n\n${htmlToText(draftHtml)}`, "Blog")}>Copiar Blog</button>
+        <button onClick={() => void copy(draftHtml, "HTML")}>Copiar HTML</button>
         <button onClick={() => void copy(draft.whatsapp.text, "WhatsApp")}>Copiar WhatsApp</button>
         {wordpressUrl ? <a href={wordpressUrl} target="_blank" rel="noopener noreferrer">Abrir WordPress ↗</a> : <button disabled title="WordPress não configurado">Abrir WordPress</button>}
         <button onClick={() => void onUpdate(kit.id, "duplicate")}>Duplicar Kit</button>
         <button onClick={() => void onUpdate(kit.id, kit.archivedAt ? "restore" : "archive")}>{kit.archivedAt ? "Restaurar Kit" : "Arquivar Kit"}</button>
+        <button className="danger-ghost" onClick={() => onDeleteRequest(kit)}>Excluir conteúdo</button>
       </div>
       <div className="kit-tabs"><button className={channel === "Blog SEO" ? "active" : ""} onClick={() => setChannel("Blog SEO")}>Blog SEO</button><button className={channel === "WhatsApp" ? "active" : ""} onClick={() => setChannel("WhatsApp")}>WhatsApp</button></div>
       {channel === "Blog SEO" ? <div className="kit-editor">
         <div className="editor-mode"><strong>Blog SEO</strong><div><button className={!preview ? "active" : ""} onClick={() => setPreview(false)}>Editar</button><button className={preview ? "active" : ""} onClick={() => setPreview(true)}>Pré-visualizar</button></div></div>
-        {preview ? <iframe className="kit-preview-frame" title="Pré-visualização segura do Blog" sandbox="" srcDoc={draft.blog.html} /> : <>
+        {preview ? <iframe className="kit-preview-frame" title="Pré-visualização segura do Blog" sandbox="" srcDoc={draftHtml} /> : <>
           <EditorField label="Título" value={draft.blog.title} onChange={(value) => setDraft((current) => ({ ...current, blog: { ...current.blog, title: value } }))} />
           <EditorField label="Título SEO" value={draft.blog.seoTitle} maxLength={70} onChange={(value) => setDraft((current) => ({ ...current, blog: { ...current.blog, seoTitle: value } }))} />
           <EditorField label="Meta description" value={draft.blog.metaDescription} maxLength={170} multiline onChange={(value) => setDraft((current) => ({ ...current, blog: { ...current.blog, metaDescription: value } }))} />
           <EditorField label="Resumo" value={draft.blog.excerpt} maxLength={500} multiline onChange={(value) => setDraft((current) => ({ ...current, blog: { ...current.blog, excerpt: value } }))} />
-          <EditorField label="Conteúdo HTML" value={draft.blog.html} multiline editor onChange={(value) => setDraft((current) => ({ ...current, blog: { ...current.blog, html: value } }))} />
+          <div className="gutenberg-editor" aria-label="Blocos Gutenberg do artigo">
+            <div className="gutenberg-editor-head"><div><span>Artigo Gutenberg</span><strong>Copie e revise cada bloco separadamente</strong></div><button className="secondary" onClick={() => void copy(draft.blog.title, "Título")}>Copiar título</button></div>
+            <section className="gutenberg-block introduction-block">
+              <div className="gutenberg-block-head"><span>Introdução · sem H2</span><button className="ghost" onClick={() => void copy(draft.blog.introduction, "Introdução")}>Copiar Introdução</button></div>
+              <EditorField label="Texto de abertura" value={draft.blog.introduction} multiline onChange={(value) => setDraft((current) => ({ ...current, blog: { ...current.blog, introduction: value } }))} />
+            </section>
+            {draft.blog.blocks.map((block, index) => <section className="gutenberg-block" key={`${index}-${block.heading}`}>
+              <div className="gutenberg-block-head"><span>Bloco {index + 1}</span><div><button className="ghost" onClick={() => void copy(block.heading, "H2")}>Copiar H2</button><button className="ghost" onClick={() => void copy(block.content, "Parágrafo")}>Copiar Parágrafo</button></div></div>
+              <EditorField label="H2" value={block.heading} maxLength={120} onChange={(value) => setDraft((current) => ({ ...current, blog: { ...current.blog, blocks: current.blog.blocks.map((item, itemIndex) => itemIndex === index ? { ...item, heading: value } : item) } }))} />
+              <EditorField label="Conteúdo" value={block.content} multiline onChange={(value) => setDraft((current) => ({ ...current, blog: { ...current.blog, blocks: current.blog.blocks.map((item, itemIndex) => itemIndex === index ? { ...item, content: value } : item) } }))} />
+            </section>)}
+            <section className="gutenberg-block conclusion-block">
+              <div className="gutenberg-block-head"><span>H2 · Conclusão</span><button className="ghost" onClick={() => void copy(draft.blog.conclusion, "Conclusão")}>Copiar Conclusão</button></div>
+              <EditorField label="Texto de conclusão" value={draft.blog.conclusion} multiline onChange={(value) => setDraft((current) => ({ ...current, blog: { ...current.blog, conclusion: value } }))} />
+            </section>
+          </div>
         </>}
-        <div className="editor-copy-actions"><button className="secondary" onClick={() => void copy(draft.blog.html, "HTML")}>Copiar HTML</button><button className="secondary" onClick={() => void copy(htmlToMarkdown(draft.blog.html), "Markdown")}>Copiar Markdown</button><button className="secondary" onClick={() => void copy(htmlToText(draft.blog.html), "Texto")}>Copiar Texto</button></div>
+        <div className="editor-copy-actions"><button className="secondary" onClick={() => void copy(draftHtml, "HTML")}>Copiar HTML</button><button className="secondary" onClick={() => void copy(htmlToMarkdown(draftHtml), "Markdown")}>Copiar Markdown</button><button className="secondary" onClick={() => void copy(htmlToText(draftHtml), "Texto")}>Copiar Texto</button></div>
         <details className="kit-sources"><summary>Fontes utilizadas ({draft.blog.sources.length})</summary>{draft.blog.sources.map((source) => <div key={source.url}><a href={source.url} target="_blank" rel="noopener noreferrer">{source.title || source.name}</a><span>{source.publisher || source.name} · {source.sourceType || "não classificada"} · {source.primaryOrSecondary === "primary" ? "Primária" : source.primaryOrSecondary === "secondary" ? "Secundária" : "Contextual"}</span></div>)}</details>
       </div> : <div className="kit-editor whatsapp-editor">
         <div className="editor-mode"><strong>WhatsApp Comercial</strong><span>{draft.whatsapp.text.length}/700</span></div>
@@ -527,6 +587,24 @@ function KitDrawer({ kit, wordpressBaseUrl, onClose, onSave, onUpdate, notify }:
       </div>}
       <div className="editor-savebar"><span>{dirty ? "Alterações ainda não salvas" : "Tudo salvo"}</span><button className={`primary ${saving ? "is-loading" : ""}`} disabled={!dirty || saving} onClick={() => void save()}>{saving ? "Salvando…" : "Salvar revisão"}</button></div>
     </aside>
+  </div>;
+}
+
+function DeleteConfirmationModal({ pending, onCancel, onConfirm }: { pending: boolean; onCancel: () => void; onConfirm: () => void }) {
+  useEscapeKey(() => {
+    if (!pending) onCancel();
+  });
+
+  return <div className="detail-backdrop confirmation-backdrop" role="presentation" onMouseDown={(event) => { if (!pending && event.target === event.currentTarget) onCancel(); }}>
+    <section className="confirmation-dialog" role="alertdialog" aria-modal="true" aria-labelledby="delete-kit-title" aria-describedby="delete-kit-description">
+      <div className="destructive-mark" aria-hidden="true">!</div>
+      <h2 id="delete-kit-title">Excluir conteúdo permanentemente?</h2>
+      <p id="delete-kit-description">Esta ação removerá definitivamente este Kit Editorial e seus dados relacionados. Não será possível desfazer.</p>
+      <div className="confirmation-actions">
+        <button className="secondary" disabled={pending} onClick={onCancel}>Cancelar</button>
+        <button className={`danger ${pending ? "is-loading" : ""}`} disabled={pending} onClick={onConfirm}>{pending ? "Excluindo…" : "Excluir permanentemente"}</button>
+      </div>
+    </section>
   </div>;
 }
 
@@ -581,6 +659,33 @@ async function writeClipboard(value: string) {
   textarea.select();
   document.execCommand("copy");
   textarea.remove();
+}
+
+function buildDraftHtml(blog: KitPayload["blog"]) {
+  const sections = blog.blocks.map((block) => `<h2>${escapeHtml(block.heading)}</h2>${structuredTextToHtml(block.content)}`).join("");
+  const sources = blog.sources.map((source) => `<li><a href="${escapeHtml(source.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(source.title || source.name)}</a> — ${escapeHtml(source.publisher || source.name)} · ${source.primaryOrSecondary === "primary" ? "Fonte primária" : source.primaryOrSecondary === "secondary" ? "Fonte secundária" : "Fonte contextual"}</li>`).join("");
+  return [
+    `<p>${escapeHtml(blog.introduction)}</p>`,
+    sections,
+    "<h2>Conclusão</h2>",
+    `<p>${escapeHtml(blog.conclusion)}</p>`,
+    `<section data-tf-news-sources="true"><h2>Fontes consultadas</h2><ul>${sources}</ul></section>`,
+    "<aside data-tf-news-transparency=\"true\"><p><strong>Transparência editorial</strong></p><p>Este conteúdo foi elaborado a partir de fontes oficiais e veículos jornalísticos de alta credibilidade.</p><p>Seu objetivo é informar e contextualizar fatos relevantes para o setor logístico.</p><p>As interpretações apresentadas são sempre atribuídas às respectivas fontes consultadas.</p></aside>",
+  ].join("");
+}
+
+function structuredTextToHtml(value: string) {
+  return value.split(/\n{2,}/).map((chunk) => chunk.trim()).filter(Boolean).map((chunk) => {
+    const lines = chunk.split("\n").map((line) => line.trim()).filter(Boolean);
+    if (lines.length && lines.every((line) => /^[-•]\s+/.test(line))) {
+      return `<ul>${lines.map((line) => `<li>${escapeHtml(line.replace(/^[-•]\s+/, ""))}</li>`).join("")}</ul>`;
+    }
+    return `<p>${escapeHtml(lines.join(" "))}</p>`;
+  }).join("");
+}
+
+function escapeHtml(value: string) {
+  return value.replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[character] ?? character));
 }
 
 function htmlToText(html: string) {
