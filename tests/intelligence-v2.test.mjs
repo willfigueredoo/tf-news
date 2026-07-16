@@ -6,6 +6,7 @@ import { buildEditorialIntelligence, scoreEditorialOpportunity } from "../lib/ed
 import { runStructuredAi } from "../lib/ai.ts";
 import { createEditorialKit, EDITORIAL_KIT_MAX_OUTPUT_TOKENS, EDITORIAL_KIT_TIMEOUT_MS, normalizeEditorialKitPayload, normalizeGeneratedEditorialKitPayload } from "../lib/editorial-kit.ts";
 import { editorialKitPayloadSchema, editorialKitUpdateSchema } from "../lib/operational-schemas.ts";
+import { applyPermanentEditorialPolicy, assertEditorialImpartiality, EDITORIAL_TECHNICAL_EDITOR_PROMPT } from "../lib/editorial-policy.ts";
 
 const NOW = new Date("2026-07-15T12:00:00.000Z");
 const NEWS = {
@@ -25,6 +26,11 @@ const NEWS = {
   relevanceScore: 88,
   status: "new",
   sourceReliability: 92,
+  sourceType: "official",
+  sourceAuthorityLevel: "high",
+  sourcePrimaryOrSecondary: "primary",
+  sourceOfficial: true,
+  sourceRequiresCrossCheck: false,
 };
 
 test("prioriza uma oportunidade editorial real e explica o score", () => {
@@ -33,7 +39,30 @@ test("prioriza uma oportunidade editorial real e explica o score", () => {
   assert.equal(decision.classification, "very_relevant");
   assert.equal(decision.produceContent, true);
   assert.match(decision.decisionReason, /Agronegócio/);
-  assert.equal(Object.keys(decision.scoreBreakdown).length, 8);
+  assert.equal(Object.keys(decision.scoreBreakdown).length, 9);
+  assert.equal(decision.sourceGovernance.status, "confirmed");
+  assert.ok(decision.scoreBreakdown.sourceReliability >= 80);
+});
+
+test("impede geração automática com uma única fonte secundária", () => {
+  const decision = scoreEditorialOpportunity({ ...NEWS, sourceOfficial: false, sourcePrimaryOrSecondary: "secondary", sourceType: "press" }, NOW);
+  assert.equal(decision.produceContent, false);
+  assert.equal(decision.sourceGovernance.status, "pending_confirmation");
+  assert.match(decision.sourceGovernance.label, /Pendente de confirmação editorial/);
+  assert.ok(decision.scoreBreakdown.sourceReliability < scoreEditorialOpportunity(NEWS, NOW).scoreBreakdown.sourceReliability);
+});
+
+test("política permanente exige imparcialidade, atribuição e fontes rastreáveis", () => {
+  assert.match(EDITORIAL_TECHNICAL_EDITOR_PROMPT, /Editor Técnico/);
+  assert.match(EDITORIAL_TECHNICAL_EDITOR_PROMPT, /Nunca produza opiniões próprias/);
+  assert.throws(() => assertEditorialImpartiality({ html: "<p>O governo acertou. O setor cresceu 10%.</p>", whatsapp: "" }), /imparcialidade/);
+  assert.doesNotThrow(() => assertEditorialImpartiality({ html: "<p>Segundo o IBGE, o setor cresceu 10%. A CNT avaliou que a medida será positiva.</p>", whatsapp: "" }));
+  const governed = applyPermanentEditorialPolicy("<h2>Contexto</h2><p>Segundo a fonte oficial, a medida pode alterar o fluxo.</p>", [{ name: "Órgão oficial", title: "Publicação original", url: "https://example.com/publicacao", sourceType: "official", primaryOrSecondary: "primary" }]);
+  assert.match(governed, /Fontes consultadas/);
+  assert.match(governed, /https:\/\/example\.com\/publicacao/);
+  assert.match(governed, /Tipo: Official/);
+  assert.match(governed, /Este conteúdo foi elaborado a partir de fontes oficiais/);
+  assert.equal((governed.match(/data-tf-news-transparency/g) ?? []).length, 1);
 });
 
 test("forma notícia do dia, Top 5, radar e insights sem IA automática", () => {
@@ -205,6 +234,7 @@ test("aguarda 5s e 10s em alta demanda, conclui na terceira tentativa e só ent�
       const overlong = minimalPayload();
       overlong.blog.seoTitle = "Mercado de etanol amplia oportunidades logísticas para empresas brasileiras em 2026";
       overlong.blog.tags = ["Etanol", "etanol", "", "Logística"];
+      overlong.blog.sources.push({ name: "Fonte inventada", url: "https://inventada.example/fonte" });
       overlong.whatsapp.text = `${overlong.whatsapp.text} ${"A operação deve antecipar capacidade e rotas. ".repeat(8)}`;
       return new Response(JSON.stringify({ responseId: "minimal-kit", candidates: [{ content: { parts: [{ text: JSON.stringify(overlong) }] } }], usageMetadata: { promptTokenCount: 200, candidatesTokenCount: 900 } }), { status: 200, headers: { "Content-Type": "application/json" } });
     },
@@ -213,10 +243,14 @@ test("aguarda 5s e 10s em alta demanda, conclui na terceira tentativa e só ent�
   assert.ok(kit.payload.blog.seoTitle.length <= 70);
   assert.ok(kit.payload.whatsapp.text.length <= 700);
   assert.deepEqual(kit.payload.blog.tags, ["Etanol", "Logística"]);
+  assert.deepEqual(kit.payload.blog.sources.map((source) => source.url), [NEWS.originalUrl]);
+  assert.equal(kit.payload.blog.sources[0].primaryOrSecondary, "primary");
+  assert.match(kit.payload.blog.html, /Fontes consultadas/);
+  assert.match(kit.payload.blog.html, /data-tf-news-transparency/);
   assert.equal(requests, 3);
   assert.deepEqual(delays, [5_000, 10_000]);
   assert.deepEqual(phases.map((entry) => entry.phase), ["request_start", "provider_response", "retry_wait", "request_start", "provider_response", "retry_wait", "request_start", "provider_response", "zod_validation_start", "zod_validation_end", "normalization_start", "normalization_end", "zod_final_validation_start", "zod_final_validation_end", "persistence_start", "persistence_end"]);
-  assert.ok(queries.some((query) => query.includes("INSERT INTO editorial_kits")));
+  assert.ok(queries.some((query) => query.includes("INSERT INTO editorial_kits") && query.includes("INSERT INTO editorial_kit_sources")));
 });
 
 test("encerra após a terceira resposta de alta demanda sem persistência parcial", async () => {
@@ -334,6 +368,6 @@ function minimalPayload() {
       tags: ["agronegócio", "logística"],
       sources: [{ name: NEWS.sourceName, url: NEWS.originalUrl }],
     },
-    whatsapp: { text: "A expansão anunciada para o agronegócio no Centro-Oeste deve elevar a movimentação de insumos e produtos na região. Para as empresas do segmento, o ponto de atenção é o planejamento de armazenagem, capacidade de transporte e previsibilidade dos fluxos nos períodos de maior demanda. A mudança pode pressionar prazos e exigir rotas mais coordenadas entre fornecedores, fábricas e clientes. A TransFAST acompanha esses movimentos para apoiar operações que buscam segurança e eficiência logística. Se esse cenário impacta sua empresa, podemos conversar sobre alternativas para preparar a operação." },
+    whatsapp: { text: "Segundo a fonte consultada, a expansão anunciada para o agronegócio no Centro-Oeste pode elevar a movimentação de insumos e produtos na região. Conforme divulgado, para as empresas do segmento, o ponto de atenção é o planejamento de armazenagem, capacidade de transporte e previsibilidade dos fluxos nos períodos de maior demanda. De acordo com o comunicado, a mudança pode pressionar prazos e exigir rotas mais coordenadas entre fornecedores, fábricas e clientes. A TransFAST acompanha esses movimentos para apoiar operações que buscam segurança e eficiência logística. Se esse cenário impacta sua empresa, podemos conversar sobre alternativas para preparar a operação." },
   };
 }

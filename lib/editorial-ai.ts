@@ -1,6 +1,7 @@
 import { aiConfigured, runStructuredAi, type AiConfig } from "./ai.ts";
-import { appendTraceableSources, sanitizeWordPressHtml, validateArticleHtml } from "./article-html.ts";
+import { sanitizeWordPressHtml, validateArticleHtml } from "./article-html.ts";
 import { articlePayloadSchema, briefPayloadSchema, coherenceSchema, type ArticlePayload, type BriefPayload, type CoherencePayload } from "./operational-schemas.ts";
+import { applyPermanentEditorialPolicy, assertEditorialImpartiality, EDITORIAL_TECHNICAL_EDITOR_PROMPT } from "./editorial-policy.ts";
 import type { Database } from "../db/runtime.ts";
 
 export type EditorialNews = {
@@ -16,7 +17,16 @@ export type EditorialNews = {
   topics: string[];
   icps: string[];
   primaryIcp: string;
+  sourcePrimaryOrSecondary?: "primary" | "secondary" | "contextual" | null;
+  sourceOfficial?: boolean;
+  sourceRequiresCrossCheck?: boolean;
 };
+
+export function requiresEditorialConfirmation(news: EditorialNews[]) {
+  if (news.length !== 1) return false;
+  const source = news[0];
+  return Boolean(source.sourceRequiresCrossCheck) || (!source.sourceOfficial && source.sourcePrimaryOrSecondary !== "primary");
+}
 
 export async function evaluateCoherence(db: Database, config: AiConfig, news: EditorialNews[]): Promise<CoherencePayload> {
   const deterministic = deterministicCoherence(news);
@@ -24,7 +34,7 @@ export async function evaluateCoherence(db: Database, config: AiConfig, news: Ed
   try {
     const response = await runStructuredAi({
       db, config, operation: "coherence", schemaName: "tf_news_coherence", schema: coherenceSchema,
-      system: "Atue como editor-chefe. Determine se as notícias podem sustentar um único conteúdo sem misturar eventos desconectados. Notícias do mesmo setor não são automaticamente o mesmo evento. Retorne JSON estrito.",
+      system: `${EDITORIAL_TECHNICAL_EDITOR_PROMPT} Determine se as notícias podem sustentar um único conteúdo sem misturar eventos desconectados. Notícias do mesmo setor não são automaticamente o mesmo evento. Retorne JSON estrito.`,
       user: JSON.stringify({ news: news.map(compactNews), deterministicSignal: deterministic }),
       maxOutputTokens: 1400,
     });
@@ -40,7 +50,7 @@ export async function generateBriefWithAi(db: Database, config: AiConfig, input:
   if (!aiConfigured(config)) throw new Error("Configure AI_PROVIDER, AI_API_KEY e AI_MODEL antes de gerar o briefing.");
   const response = await runStructuredAi({
     db, config, operation: "brief", schemaName: "tf_news_editorial_brief", schema: briefPayloadSchema,
-    system: `Você é editor sênior de jornalismo B2B brasileiro. Crie um briefing factual e acionável. Use somente fatos presentes nas fontes. Diferencie fato, análise e hipótese. Não invente números, declarações ou relações causais. Retorne JSON estrito.`,
+    system: `${EDITORIAL_TECHNICAL_EDITOR_PROMPT} Crie um briefing técnico, factual e acionável. Use somente fatos presentes nas fontes. Diferencie fato confirmado, avaliação atribuída e informação ainda pendente de confirmação. Retorne JSON estrito.`,
     user: JSON.stringify({ requestedIcp: input.requestedIcp, objective: input.objective, primaryKeyword: input.primaryKeyword, tone: input.tone, coherence: input.coherence, sources: input.news.map(compactNews) }),
     maxOutputTokens: 3200,
   });
@@ -54,12 +64,21 @@ export async function generateArticleWithAi(db: Database, config: AiConfig, inpu
   if (!aiConfigured(config)) throw new Error("Configure AI_PROVIDER, AI_API_KEY e AI_MODEL antes de gerar o artigo.");
   const response = await runStructuredAi({
     db, config, operation: "article", schemaName: "tf_news_wordpress_article", schema: articlePayloadSchema,
-    system: `Você é jornalista B2B. Escreva um artigo original em português do Brasil, entre 800 e 1.400 palavras, em HTML sem Markdown. Use <p>, <h2>, <h3>, <ul>/<ol>, <li>, <strong>, <em>, <blockquote> e <a>. Separe explicitamente fatos confirmados, análise editorial e hipóteses. Cite as fontes com links. Não copie trechos longos. Não use os termos internos "Todos os ICPs", "score classificado", "impacto moderado" ou "ICP selecionado". Não invente fatos, números ou falas. Retorne JSON estrito.`,
+    system: `${EDITORIAL_TECHNICAL_EDITOR_PROMPT} Escreva um artigo técnico original em português do Brasil, entre 800 e 1.400 palavras, em HTML sem Markdown. Use <p>, <h2>, <h3>, <ul>/<ol>, <li>, <strong>, <em>, <blockquote> e <a>. Separe fatos confirmados, avaliações atribuídas e informações pendentes. Cite as fontes com links. Não copie trechos longos. Não use os termos internos "Todos os ICPs", "score classificado", "impacto moderado" ou "ICP selecionado". Retorne JSON estrito.`,
     user: JSON.stringify({ objective: input.objective, tone: input.tone, brief: input.brief, sourceMaterial: input.news.map(compactNews) }),
     maxOutputTokens: 6500,
   });
   let contentHtml = sanitizeWordPressHtml(response.data.contentHtml);
-  contentHtml = appendTraceableSources(contentHtml, input.news);
+  contentHtml = applyPermanentEditorialPolicy(contentHtml, input.news.map((source) => ({
+    name: source.sourceName,
+    publisher: source.sourceName,
+    title: source.title,
+    url: source.originalUrl,
+    sourceType: "not_classified",
+    primaryOrSecondary: "contextual",
+    publishedAt: source.publishedAt,
+  })));
+  assertEditorialImpartiality({ html: contentHtml, whatsapp: "" });
   validateArticleHtml(contentHtml);
   return articlePayloadSchema.parse({ ...response.data, contentHtml });
 }

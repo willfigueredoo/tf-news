@@ -16,7 +16,9 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "node --env-file-if-exists=.env.local scripts/migrate.mjs",
     "db:check": "node --env-file-if-exists=.env.local scripts/check-database.mjs",
-    "db:check:schema": "node --env-file-if-exists=.env.local scripts/check-schema.mjs"
+    "db:check:schema": "node --env-file-if-exists=.env.local scripts/check-schema.mjs",
+    "sources:verify": "node --experimental-strip-types scripts/seed-editorial-sources.mjs --verify-only",
+    "db:seed:sources": "node --experimental-strip-types --env-file-if-exists=.env.local scripts/seed-editorial-sources.mjs --apply"
   },
   "dependencies": {
     "drizzle-orm": "0.45.2",

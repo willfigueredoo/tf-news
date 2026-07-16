@@ -24,6 +24,12 @@ type Decision = {
   commercialImpact: string;
   logisticsReason: string;
   scoreBreakdown: Record<string, number>;
+  sourceGovernance: {
+    status: "confirmed" | "pending_confirmation";
+    label: string;
+    canGenerate: boolean;
+    signals: string[];
+  };
 };
 
 type Intelligence = {
@@ -72,7 +78,7 @@ type KitPayload = {
     html: string;
     category: string;
     tags: string[];
-    sources: Array<{ name: string; url: string }>;
+    sources: Array<{ name: string; url: string; title?: string | null; publisher?: string | null; sourceId?: number | null; sourceType?: string | null; primaryOrSecondary?: "primary" | "secondary" | "contextual" | null; authorityLevel?: "high" | "medium" | "low" | null; publishedAt?: string | null }>;
   };
   whatsapp: { text: string };
 };
@@ -187,10 +193,11 @@ export function EditorialIntelligence({ mode, aiConfigured, wordpressBaseUrl, fo
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id, action: "save", payload }),
     });
-    const data = await response.json() as { updatedAt?: string; error?: string };
+    const data = await response.json() as { updatedAt?: string; payload?: KitPayload; error?: string };
     if (!response.ok || !data.updatedAt) throw new Error(data.error ?? "Não foi possível salvar a revisão.");
+    const savedPayload = data.payload ?? payload;
     const update = (kit: Kit): Kit => kit.id === id
-      ? { ...kit, title: payload.blog.seoTitle, payload, updatedAt: data.updatedAt as string }
+      ? { ...kit, title: savedPayload.blog.seoTitle, payload: savedPayload, updatedAt: data.updatedAt as string }
       : kit;
     setKits((current) => current.map(update));
     setSelectedKit((current) => current ? update(current) : current);
@@ -281,12 +288,13 @@ function ExecutiveOverview({ intelligence, featured, aiConfigured, libraryPendin
           <div><small>Fonte</small><p>{featured.sourceName} · {featured.region || "Abrangência nacional"}</p></div>
         </div>
         <div className="inline-actions story-actions">
-          <button className={`primary ${generating === featured.id ? "is-loading" : ""}`} disabled={!aiConfigured || libraryPending || generating !== null} onClick={() => generateKit(featured.id)}>{generating === featured.id ? "Criando seu Kit…" : "CRIAR CONTEÚDO"}</button>
+          <button className={`primary ${generating === featured.id ? "is-loading" : ""}`} disabled={!aiConfigured || libraryPending || generating !== null || !featured.produceContent} onClick={() => generateKit(featured.id)}>{generating === featured.id ? "Criando seu Kit…" : featured.sourceGovernance.status === "pending_confirmation" ? "PENDENTE DE CONFIRMAÇÃO" : "CRIAR CONTEÚDO"}</button>
           <a className="secondary" href={featured.originalUrl} target="_blank" rel="noopener noreferrer">Abrir fonte original ↗</a>
         </div>
         {generation?.newsId === featured.id && <GenerationProgress step={generation.step} />}
         {!aiConfigured && <div className="notice kit-notice">A geração estará disponível assim que a inteligência editorial estiver configurada.</div>}
         {libraryPending && <div className="notice kit-notice">A Biblioteca precisa estar disponível para receber o Kit Editorial.</div>}
+        {featured.sourceGovernance.status === "pending_confirmation" && <div className="notice kit-notice">Pendente de confirmação editorial. Uma fonte primária ou uma confirmação independente é necessária antes da geração.</div>}
       </div>
       <ScoreBreakdown decision={featured} />
     </section>}
@@ -296,7 +304,7 @@ function ExecutiveOverview({ intelligence, featured, aiConfigured, libraryPendin
         <span className="rank">0{index + 1}</span>
         <div><div className="content-title">{item.title}</div><div className="content-meta">{item.sourceName} · {item.primaryIcp}</div><p>{item.opportunity}</p></div>
         <span className={`score ${item.editorialScore >= 80 ? "priority" : ""}`}>{item.editorialScore}</span>
-        <button className="ghost" disabled={!aiConfigured || libraryPending || generating !== null} onClick={() => generateKit(item.id)}>Gerar kit</button>
+        <button className="ghost" disabled={!aiConfigured || libraryPending || generating !== null || !item.produceContent} onClick={() => generateKit(item.id)}>{item.sourceGovernance.status === "pending_confirmation" ? "Confirmar fonte" : "Gerar kit"}</button>
       </article>)}</div>
     </section>
     {drawer}
@@ -318,6 +326,7 @@ function ScoreBreakdown({ decision }: { decision: Decision }) {
     ["Relevância econômica", decision.scoreBreakdown.economicImportance],
     ["ICP atendido", decision.scoreBreakdown.icpFit],
     ["Autoridade da fonte", decision.scoreBreakdown.sourceAuthority],
+    ["Confiabilidade das fontes", decision.scoreBreakdown.sourceReliability],
   ] as Array<[string, number]>;
   return <aside className="score-breakdown">
     <div className="score-caption">Score editorial</div>
@@ -325,6 +334,7 @@ function ScoreBreakdown({ decision }: { decision: Decision }) {
     <h3>Por que esta notícia foi escolhida?</h3>
     <p className="score-summary">Quatro sinais concentram a força editorial desta pauta.</p>
     {reasons.map(([label, value]) => <div className="score-line" key={label}><span>{label}</span><div><i style={{ width: `${value}%` }} /></div><strong>{value}</strong></div>)}
+    <div className="source-confidence" aria-label="Confiabilidade das fontes">{decision.sourceGovernance.signals.map((signal) => <span key={signal}>{signal === "Confirmação cruzada pendente" ? "○" : "✓"} {signal}</span>)}</div>
   </aside>;
 }
 
@@ -509,6 +519,7 @@ function KitDrawer({ kit, wordpressBaseUrl, onClose, onSave, onUpdate, notify }:
           <EditorField label="Conteúdo HTML" value={draft.blog.html} multiline editor onChange={(value) => setDraft((current) => ({ ...current, blog: { ...current.blog, html: value } }))} />
         </>}
         <div className="editor-copy-actions"><button className="secondary" onClick={() => void copy(draft.blog.html, "HTML")}>Copiar HTML</button><button className="secondary" onClick={() => void copy(htmlToMarkdown(draft.blog.html), "Markdown")}>Copiar Markdown</button><button className="secondary" onClick={() => void copy(htmlToText(draft.blog.html), "Texto")}>Copiar Texto</button></div>
+        <details className="kit-sources"><summary>Fontes utilizadas ({draft.blog.sources.length})</summary>{draft.blog.sources.map((source) => <div key={source.url}><a href={source.url} target="_blank" rel="noopener noreferrer">{source.title || source.name}</a><span>{source.publisher || source.name} · {source.sourceType || "não classificada"} · {source.primaryOrSecondary === "primary" ? "Primária" : source.primaryOrSecondary === "secondary" ? "Secundária" : "Contextual"}</span></div>)}</details>
       </div> : <div className="kit-editor whatsapp-editor">
         <div className="editor-mode"><strong>WhatsApp Comercial</strong><span>{draft.whatsapp.text.length}/700</span></div>
         <textarea className="editor-textarea whatsapp-textarea" value={draft.whatsapp.text} maxLength={700} onChange={(event) => setDraft((current) => ({ ...current, whatsapp: { text: event.target.value } }))} />

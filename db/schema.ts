@@ -43,6 +43,66 @@ export const sources = pgTable("sources", {
   updatedAt: text("updated_at"),
 });
 
+export const editorialSources = pgTable("editorial_sources", {
+  id: serial("id").primaryKey(),
+  operationalSourceId: integer("operational_source_id").references(() => sources.id),
+  sourceKey: text("source_key").notNull(),
+  name: text("name").notNull(),
+  domain: text("domain").notNull(),
+  baseUrl: text("base_url").notNull(),
+  feedUrl: text("feed_url"),
+  category: text("category").notNull(),
+  subcategories: text("subcategories").notNull().default("[]"),
+  authorityLevel: text("authority_level").notNull(),
+  authorityScore: integer("authority_score").notNull().default(50),
+  sourceType: text("source_type").notNull(),
+  editorialRole: text("editorial_role").notNull(),
+  primaryOrSecondary: text("primary_or_secondary").notNull(),
+  officialEntity: boolean("official_entity").notNull().default(false),
+  country: text("country").notNull().default("BR"),
+  language: text("language").notNull().default("pt-BR"),
+  monitoringMode: text("monitoring_mode").notNull().default("reference"),
+  activeForCollection: boolean("active_for_collection").notNull().default(false),
+  status: text("status").notNull().default("pending_review"),
+  reliability: integer("reliability").notNull().default(75),
+  priority: integer("priority").notNull().default(50),
+  updateFrequencyMinutes: integer("update_frequency_minutes").notNull().default(720),
+  topicsAllowed: text("topics_allowed").notNull().default("[]"),
+  topicsRestricted: text("topics_restricted").notNull().default("[]"),
+  geographicScope: text("geographic_scope").notNull().default("Brasil"),
+  relatedIcps: text("related_icps").notNull().default("[]"),
+  requiresCrossCheck: boolean("requires_cross_check").notNull().default(false),
+  preferredOriginalSource: boolean("preferred_original_source").notNull().default(false),
+  paywall: text("paywall").notNull().default("none"),
+  requiresJavascript: boolean("requires_javascript").notNull().default(false),
+  robotsStatus: text("robots_status").notNull().default("unknown"),
+  sitemapUrl: text("sitemap_url"),
+  lastVerifiedAt: text("last_verified_at"),
+  lastSuccessfulCollectionAt: text("last_successful_collection_at"),
+  lastFailedCollectionAt: text("last_failed_collection_at"),
+  consecutiveFailures: integer("consecutive_failures").notNull().default(0),
+  editorialNotes: text("editorial_notes").notNull().default(""),
+  biasOrInterestDisclosure: text("bias_or_interest_disclosure").notNull().default(""),
+  minimumConfirmationSources: integer("minimum_confirmation_sources").notNull().default(1),
+  canConfirmRegulation: boolean("can_confirm_regulation").notNull().default(false),
+  canConfirmStatistics: boolean("can_confirm_statistics").notNull().default(false),
+  canConfirmCompanyEvents: boolean("can_confirm_company_events").notNull().default(false),
+  canConfirmOperationalDisruption: boolean("can_confirm_operational_disruption").notNull().default(false),
+  canConfirmPrices: boolean("can_confirm_prices").notNull().default(false),
+  canConfirmWeather: boolean("can_confirm_weather").notNull().default(false),
+  canConfirmInternationalTrade: boolean("can_confirm_international_trade").notNull().default(false),
+  archivedAt: text("archived_at"),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+}, (table) => [
+  uniqueIndex("editorial_sources_key_unique").on(table.sourceKey),
+  index("editorial_sources_domain_idx").on(table.domain),
+  index("editorial_sources_collection_idx").on(table.activeForCollection, table.monitoringMode, table.status),
+  index("editorial_sources_authority_idx").on(table.authorityLevel, table.authorityScore),
+  index("editorial_sources_category_idx").on(table.category, table.country),
+  index("editorial_sources_operational_idx").on(table.operationalSourceId),
+]);
+
 export const newsItems = pgTable("news_items", {
   id: serial("id").primaryKey(),
   externalId: text("external_id").notNull(),
@@ -144,6 +204,39 @@ export const editorialKits = pgTable("editorial_kits", {
 }, (table) => [
   index("editorial_kits_news_idx").on(table.newsItemId, table.createdAt),
   index("editorial_kits_status_idx").on(table.status, table.updatedAt),
+]);
+
+export const editorialKitSources = pgTable("editorial_kit_sources", {
+  id: serial("id").primaryKey(),
+  editorialKitId: integer("editorial_kit_id").notNull().references(() => editorialKits.id),
+  editorialSourceId: integer("editorial_source_id").references(() => editorialSources.id),
+  title: text("title").notNull(),
+  url: text("url").notNull(),
+  publisher: text("publisher").notNull(),
+  primaryOrSecondary: text("primary_or_secondary").notNull(),
+  authorityLevel: text("authority_level").notNull(),
+  publishedAt: text("published_at"),
+  createdAt: text("created_at").notNull(),
+}, (table) => [
+  uniqueIndex("editorial_kit_sources_url_unique").on(table.editorialKitId, table.url),
+  index("editorial_kit_sources_kit_idx").on(table.editorialKitId),
+  index("editorial_kit_sources_source_idx").on(table.editorialSourceId),
+]);
+
+export const strategicAccounts = pgTable("strategic_accounts", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  aliases: text("aliases").notNull().default("[]"),
+  domain: text("domain").notNull(),
+  icp: text("icp").notNull(),
+  status: text("status").notNull().default("inactive"),
+  editorialWeight: integer("editorial_weight").notNull().default(20),
+  evidenceSourceUrl: text("evidence_source_url"),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+}, (table) => [
+  uniqueIndex("strategic_accounts_domain_unique").on(table.domain),
+  index("strategic_accounts_status_idx").on(table.status, table.icp),
 ]);
 
 export const wordpressPublications = pgTable("wordpress_publications", {

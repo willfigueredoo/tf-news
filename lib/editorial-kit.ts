@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { aiConfigured, logAiPhase, runStructuredAi, type AiConfig, type AiPhaseLogger } from "./ai.ts";
 import { editorialKitPayloadSchema, editorialKitRawPayloadSchema, type EditorialKitPayload, type EditorialKitRawPayload } from "./operational-schemas.ts";
+import { applyPermanentEditorialPolicy, assertEditorialImpartiality, EDITORIAL_TECHNICAL_EDITOR_PROMPT } from "./editorial-policy.ts";
 import type { Database } from "../db/runtime.ts";
 import type { EditorialDecision } from "./editorial-intelligence.ts";
 
@@ -62,10 +63,13 @@ export async function generateEditorialKit(db: Database, config: AiConfig, decis
     schemaName: "tf_news_editorial_kit_minimal_v1",
     schema: editorialKitRawPayloadSchema,
     system: [
-      "Você é o editor do TF News, especializado em logística B2B e inteligência de mercado.",
+      EDITORIAL_TECHNICAL_EDITOR_PROMPT,
+      "Você é o editor técnico do TF News, especializado em logística B2B e inteligência de mercado.",
       "Gere somente os objetos blog e whatsapp definidos no schema, em português do Brasil.",
       "Não gere avaliações, explicações do processo, alternativas de título, FAQ, JSON-LD, metadados extras ou outros canais.",
       "Não invente dados, falas, datas ou relações causais. Use somente os fatos e a fonte fornecidos.",
+      "Use exclusivamente a URL original fornecida. Não acrescente fontes ou links que não estejam na entrada.",
+      "A seção rastreável de fontes e a nota de transparência serão anexadas pelo sistema; não as invente nem as duplique.",
       "O blog deve ter entre 450 e 550 palavras, com profundidade suficiente para explicar contexto, causas, consequências e impactos sem repetir informações.",
       "Organize o conteúdo nesta ordem: resumo executivo, introdução, contexto, o que aconteceu, impacto para o mercado, impacto logístico, oportunidades, conclusão, CTA discreto e fontes.",
       "Use H2 e H3 naturais em HTML semântico compatível com WordPress. O resumo executivo deve ser curto e a leitura deve permanecer fluida e jornalística.",
@@ -89,8 +93,7 @@ export async function generateEditorialKit(db: Database, config: AiConfig, decis
         secondarySegments: decision.secondaryIcps,
         topics: decision.topics,
         region: decision.region,
-        commercialImpact: decision.commercialImpact,
-        logisticsImpact: decision.logisticsReason,
+        logisticsImpactClassification: decision.logisticsImpact,
       },
     }),
     maxOutputTokens: EDITORIAL_KIT_MAX_OUTPUT_TOKENS,
@@ -103,6 +106,9 @@ export async function generateEditorialKit(db: Database, config: AiConfig, decis
 
   phaseLogger({ phase: "normalization_start", operation: "editorial-kit", provider: config.provider, model: config.model, elapsedMs: Date.now() - started });
   const normalized = normalizeGeneratedEditorialKitPayload(response.data);
+  normalized.blog.sources = [traceableDecisionSource(decision)];
+  normalized.blog.html = applyPermanentEditorialPolicy(normalized.blog.html, normalized.blog.sources);
+  assertEditorialImpartiality({ html: normalized.blog.html, whatsapp: normalized.whatsapp.text });
   phaseLogger({ phase: "normalization_end", operation: "editorial-kit", provider: config.provider, model: config.model, elapsedMs: Date.now() - started, status: "success" });
   phaseLogger({ phase: "zod_final_validation_start", operation: "editorial-kit", provider: config.provider, model: config.model, elapsedMs: Date.now() - started });
   let payload: EditorialKitPayload;
@@ -147,8 +153,9 @@ export async function createEditorialKit(db: Database, config: AiConfig, decisio
   const now = (options.now ?? new Date()).toISOString();
   phaseLogger({ phase: "persistence_start", operation: "editorial-kit", provider: config.provider, model: config.model, elapsedMs: Date.now() - started });
   try {
-    const insert = await db.prepare("INSERT INTO editorial_kits (news_item_id, title, primary_icp, editorial_score, provider, model, payload, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?) RETURNING id")
-      .bind(decision.id, payload.blog.seoTitle, decision.primaryIcp, decision.editorialScore, config.provider, config.model, JSON.stringify(payload), now, now).run();
+    const source = payload.blog.sources[0];
+    const insert = await db.prepare("WITH inserted_kit AS (INSERT INTO editorial_kits (news_item_id, title, primary_icp, editorial_score, provider, model, payload, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?) RETURNING id) INSERT INTO editorial_kit_sources (editorial_kit_id, editorial_source_id, title, url, publisher, primary_or_secondary, authority_level, published_at, created_at) SELECT id, ?, ?, ?, ?, ?, ?, ?, ? FROM inserted_kit RETURNING editorial_kit_id AS id")
+      .bind(decision.id, payload.blog.seoTitle, decision.primaryIcp, decision.editorialScore, config.provider, config.model, JSON.stringify(payload), now, now, source.sourceId ?? null, source.title ?? decision.title, source.url, source.publisher ?? source.name, source.primaryOrSecondary ?? "contextual", source.authorityLevel ?? "medium", source.publishedAt ?? decision.publishedAt, now).run();
     const id = Number(insert.meta.last_row_id);
     if (!id) throw new Error("O Kit Editorial foi gerado, mas não pôde ser salvo na Biblioteca.");
     phaseLogger({ phase: "persistence_end", operation: "editorial-kit", provider: config.provider, model: config.model, elapsedMs: Date.now() - started, status: "success" });
@@ -157,6 +164,18 @@ export async function createEditorialKit(db: Database, config: AiConfig, decisio
     phaseLogger({ phase: "persistence_end", operation: "editorial-kit", provider: config.provider, model: config.model, elapsedMs: Date.now() - started, status: "failed" });
     throw error;
   }
+}
+
+export function enforcePermanentEditorialPolicy(payload: EditorialKitPayload): EditorialKitPayload {
+  const governed = {
+    ...payload,
+    blog: {
+      ...payload.blog,
+      html: applyPermanentEditorialPolicy(payload.blog.html, payload.blog.sources),
+    },
+  };
+  assertEditorialImpartiality({ html: governed.blog.html, whatsapp: governed.whatsapp.text });
+  return editorialKitPayloadSchema.parse(governed);
 }
 
 export function normalizeEditorialKitPayload(payload: unknown, context: CompatibilityContext): EditorialKitPayload {
@@ -296,9 +315,23 @@ function uniqueSources(sources: EditorialKitRawPayload["blog"]["sources"], maxIt
   const seen = new Set<string>();
   for (const source of sources) {
     if (seen.has(source.url)) continue;
-    result.push({ name: truncateWords(source.name, 180), url: source.url });
+    result.push({ ...source, name: truncateWords(source.name, 180), url: source.url });
     seen.add(source.url);
     if (result.length === maxItems) break;
   }
   return result;
+}
+
+function traceableDecisionSource(decision: EditorialDecision): EditorialKitPayload["blog"]["sources"][number] {
+  return {
+    name: decision.sourceName,
+    title: decision.title,
+    url: decision.originalUrl,
+    publisher: decision.sourceName,
+    sourceId: decision.editorialSourceId ?? null,
+    sourceType: decision.sourceType ?? "not_classified",
+    primaryOrSecondary: decision.sourcePrimaryOrSecondary ?? "contextual",
+    authorityLevel: decision.sourceAuthorityLevel ?? (decision.sourceReliability >= 85 ? "high" : decision.sourceReliability >= 60 ? "medium" : "low"),
+    publishedAt: decision.publishedAt,
+  };
 }

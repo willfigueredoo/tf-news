@@ -67,7 +67,17 @@ export const articlePayloadSchema = z.object({
   factualConfidence: z.number().min(0).max(1),
 });
 
-const editorialSourceSchema = z.object({ name: z.string().min(2).max(180), url: z.string().url() });
+const editorialSourceSchema = z.object({
+  name: z.string().min(2).max(180),
+  url: z.string().url(),
+  title: z.string().min(2).max(300).nullable().optional(),
+  publisher: z.string().min(2).max(180).nullable().optional(),
+  sourceId: z.number().int().positive().nullable().optional(),
+  sourceType: z.string().min(2).max(80).nullable().optional(),
+  primaryOrSecondary: z.enum(["primary", "secondary", "contextual"]).nullable().optional(),
+  authorityLevel: z.enum(["high", "medium", "low"]).nullable().optional(),
+  publishedAt: z.string().min(10).max(40).nullable().optional(),
+});
 
 export const editorialKitRawPayloadSchema = z.object({
   blog: z.object({

@@ -15,6 +15,13 @@ export type IntelligenceNews = {
   relevanceScore: number;
   status: string;
   sourceReliability: number;
+  editorialSourceId?: number | null;
+  sourceType?: string | null;
+  sourceAuthorityLevel?: "high" | "medium" | "low" | null;
+  sourcePrimaryOrSecondary?: "primary" | "secondary" | "contextual" | null;
+  sourceOfficial?: boolean;
+  sourceRequiresCrossCheck?: boolean;
+  sourceMinimumConfirmationSources?: number;
 };
 
 export type EditorialDecision = IntelligenceNews & {
@@ -30,6 +37,13 @@ export type EditorialDecision = IntelligenceNews & {
     commercialPotential: number;
     contentPotential: number;
     authorityPotential: number;
+    sourceReliability: number;
+  };
+  sourceGovernance: {
+    status: "confirmed" | "pending_confirmation";
+    label: "Confirmada" | "Pendente de confirmação editorial";
+    canGenerate: boolean;
+    signals: string[];
   };
   decisionReason: string;
   opportunity: string;
@@ -94,23 +108,26 @@ export function scoreEditorialOpportunity(item: IntelligenceNews, now = new Date
   const icpFit = clamp(45 + Math.min(3, item.secondaryIcps.length) * 10 + (item.primaryIcp && item.primaryIcp !== "Mercado e Logística" ? 25 : 0));
   const economicImportance = clamp(35 + termScore(text, ECONOMIC_TERMS, 9) + Math.round(item.relevanceScore * .25));
   const sourceAuthority = clamp(item.sourceReliability);
+  const sourceReliability = sourceReliabilityScore(item);
   const recency = clamp(Math.round(100 - ageHours * 1.35));
   const commercialPotential = clamp(30 + termScore(text, COMMERCIAL_TERMS, 9) + Math.round(item.relevanceScore * .3));
   const contentPotential = clamp(35 + Math.min(25, item.topics.length * 6) + Math.round(item.relevanceScore * .35));
   const authorityPotential = clamp(Math.round(sourceAuthority * .45 + item.relevanceScore * .55));
   const editorialScore = clamp(Math.round(
-    logistics * .18 + icpFit * .14 + economicImportance * .14 + sourceAuthority * .12 + recency * .12 +
-    commercialPotential * .10 + contentPotential * .12 + authorityPotential * .08,
+    logistics * .17 + icpFit * .13 + economicImportance * .13 + sourceAuthority * .08 + sourceReliability * .12 +
+    recency * .12 + commercialPotential * .09 + contentPotential * .11 + authorityPotential * .05,
   ));
   const classification = editorialScore >= 80 ? "very_relevant" : editorialScore >= 60 ? "relevant" : editorialScore >= 40 ? "low_priority" : "discard";
-  const produceContent = editorialScore >= 60 && item.status !== "discarded" && item.status !== "archived";
+  const sourceGovernance = evaluateSourceGovernance(item);
+  const produceContent = editorialScore >= 60 && sourceGovernance.canGenerate && item.status !== "discarded" && item.status !== "archived";
   return {
     ...item,
     editorialScore,
     classification,
     produceContent,
-    scoreBreakdown: { logistics, icpFit, economicImportance, sourceAuthority, recency, commercialPotential, contentPotential, authorityPotential },
-    decisionReason: `${classificationLabel(classification)}: aderência a ${item.primaryIcp}, impacto logístico ${impactLabel(item.logisticsImpact)} e fonte com autoridade ${sourceAuthority}/100.`,
+    scoreBreakdown: { logistics, icpFit, economicImportance, sourceAuthority, sourceReliability, recency, commercialPotential, contentPotential, authorityPotential },
+    sourceGovernance,
+    decisionReason: `${classificationLabel(classification)}: aderência a ${item.primaryIcp}, impacto logístico ${impactLabel(item.logisticsImpact)} e confiabilidade das fontes ${sourceReliability}/100.`,
     opportunity: produceContent
       ? `Transformar o fato em uma análise prática para ${item.primaryIcp}, explicando o que muda agora e quais decisões merecem atenção.`
       : "Manter no radar até surgir um sinal mais recente, relevante ou diretamente acionável.",
@@ -123,6 +140,32 @@ export function scoreEditorialOpportunity(item: IntelligenceNews, now = new Date
         ? "Existe efeito logístico provável, mas sua intensidade depende da evolução do evento."
         : "Não há sinal logístico direto forte no material disponível.",
   };
+}
+
+function sourceReliabilityScore(item: IntelligenceNews) {
+  let score = Math.round(item.sourceReliability * .55);
+  if (item.sourceAuthorityLevel === "high") score += 15;
+  else if (item.sourceAuthorityLevel === "medium") score += 8;
+  if (item.sourceOfficial) score += 10;
+  if (item.sourcePrimaryOrSecondary === "primary") score += 10;
+  if (item.sourceType === "statistical") score += 10;
+  if (item.sourcePrimaryOrSecondary === "secondary") score -= 20;
+  if (item.sourcePrimaryOrSecondary === "contextual" || !item.sourcePrimaryOrSecondary) score -= 15;
+  if (item.sourceRequiresCrossCheck) score -= 15;
+  return clamp(score);
+}
+
+function evaluateSourceGovernance(item: IntelligenceNews): EditorialDecision["sourceGovernance"] {
+  const signals: string[] = [];
+  if (item.sourceOfficial) signals.push("Fonte oficial");
+  if (item.sourcePrimaryOrSecondary === "primary") signals.push("Fonte primária");
+  if (item.sourceType === "statistical") signals.push("Dados estatísticos");
+  const requiresConfirmation = !item.sourceOfficial && item.sourcePrimaryOrSecondary !== "primary";
+  if (!requiresConfirmation && !item.sourceRequiresCrossCheck) signals.push("Confirmação editorial suficiente");
+  if (requiresConfirmation || item.sourceRequiresCrossCheck) signals.push("Confirmação cruzada pendente");
+  return requiresConfirmation || Boolean(item.sourceRequiresCrossCheck)
+    ? { status: "pending_confirmation", label: "Pendente de confirmação editorial", canGenerate: false, signals }
+    : { status: "confirmed", label: "Confirmada", canGenerate: true, signals };
 }
 
 function buildRadar(news: IntelligenceNews[], now: Date) {
