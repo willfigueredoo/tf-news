@@ -7,7 +7,7 @@ export const SOURCE_TYPES = [
 
 export const MONITORING_MODES = ["rss", "atom", "api", "reference", "manual"] as const;
 export const AUTHORITY_LEVELS = ["high", "medium", "low"] as const;
-export const EDITORIAL_ROLES = ["confirmation", "regulation", "statistics", "research", "context", "operational_alert"] as const;
+export const EDITORIAL_ROLES = ["discovery", "confirmation", "regulation", "statistics", "research", "context", "operational_alert"] as const;
 export const PRIMARY_OR_SECONDARY = ["primary", "secondary", "contextual"] as const;
 export const AUTHORITY_PROFILES = ["automatic", "news_agency", "economic_outlet"] as const;
 
@@ -37,6 +37,8 @@ export const editorialSourceSeedSchema = z.object({
   domain: z.string().trim().toLowerCase().min(4).max(255),
   baseUrl: z.string().url().max(1000),
   feedCandidates: z.array(z.string().url().max(1000)).max(5).default([]),
+  aliases: z.array(z.string().trim().min(2).max(180)).max(10).default([]),
+  feedAliases: z.array(z.string().url().max(1000)).max(10).default([]),
   category: z.string().trim().min(2).max(120),
   subcategories: z.array(z.string().trim().min(2).max(100)).max(20).default([]),
   authorityLevel: z.enum(AUTHORITY_LEVELS).default("high"),

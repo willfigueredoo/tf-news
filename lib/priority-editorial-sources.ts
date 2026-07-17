@@ -255,8 +255,32 @@ export const PRIORITY_EDITORIAL_SOURCES: EditorialSourceSeed[] = [
     topicsAllowed: ["commodities agrícolas", "produção mundial", "exportações", "importações"], relatedIcps: [ICP.agro, ICP.animal], geographicScope: "Internacional com impacto no Brasil",
     preferredOriginalSource: true, capabilities: { statistics: true, internationalTrade: true },
   }),
+  source({
+    sourceKey: "globo-rural", name: "Globo Rural", domain: "globorural.globo.com", baseUrl: "https://globorural.globo.com",
+    feedCandidates: ["https://globorural.globo.com/rss/globorural"], aliases: ["Globo Rural"],
+    feedAliases: ["https://pox.globo.com/rss/globorural/"], category: "Agronegócio", subcategories: ["agricultura", "pecuária", "clima", "commodities", "economia rural", "safra"],
+    authorityLevel: "high", sourceType: "sector_press", editorialRole: "discovery", primaryOrSecondary: "secondary",
+    reliability: 92, priority: 95, updateFrequencyMinutes: 720, topicsAllowed: ["agricultura", "pecuária", "clima", "commodities", "economia rural", "safra"],
+    relatedIcps: [ICP.agro], requiresCrossCheck: true, geographicScope: "Brasil", editorialNotes: "Tier 1; fonte de descoberta nacional. O alias pox.globo.com representa a mesma identidade editorial e nunca deve ser cadastrado separadamente.",
+  }),
+  source({
+    sourceKey: "safras-mercado", name: "Safras & Mercado", domain: "safras.com.br", baseUrl: "https://safras.com.br",
+    feedCandidates: ["https://safras.com.br/feed/"], aliases: ["Safras e Mercado", "Agência Safras"], category: "Agronegócio / Mercado",
+    subcategories: ["commodities", "preços", "mercado", "soja", "milho", "café", "pecuária", "safra"], authorityLevel: "high",
+    sourceType: "market_data", editorialRole: "discovery", primaryOrSecondary: "secondary", reliability: 92, priority: 95,
+    updateFrequencyMinutes: 720, topicsAllowed: ["commodities", "preços", "mercado", "soja", "milho", "café", "pecuária", "safra"],
+    relatedIcps: [ICP.agro], requiresCrossCheck: true, geographicScope: "Brasil", editorialNotes: "Tier 1; fonte de descoberta e contexto de mercado. Dados e projeções devem permanecer atribuídos à fonte original.",
+  }),
+  source({
+    sourceKey: "farmnews", name: "FarmNews", domain: "farmnews.com.br", baseUrl: "https://www.farmnews.com.br",
+    feedCandidates: ["https://www.farmnews.com.br/feed/"], aliases: ["Farm News"], category: "Agronegócio / Mercado",
+    subcategories: ["grãos", "pecuária", "preços", "mercado agropecuário"], authorityLevel: "medium", sourceType: "sector_press",
+    editorialRole: "discovery", primaryOrSecondary: "secondary", reliability: 82, priority: 82, updateFrequencyMinutes: 720,
+    topicsAllowed: ["grãos", "pecuária", "preços", "mercado agropecuário"], relatedIcps: [ICP.agro], requiresCrossCheck: true,
+    geographicScope: "Brasil", editorialNotes: "Tier 1/3; fonte complementar de descoberta. Confirmar dados relevantes em fonte primária quando disponível.",
+  }),
 ];
 
-if (PRIORITY_EDITORIAL_SOURCES.length !== 35) {
-  throw new Error(`A whitelist prioritária precisa conter 35 fontes; recebeu ${PRIORITY_EDITORIAL_SOURCES.length}.`);
+if (PRIORITY_EDITORIAL_SOURCES.length !== 38) {
+  throw new Error(`A whitelist prioritária precisa conter 38 fontes; recebeu ${PRIORITY_EDITORIAL_SOURCES.length}.`);
 }

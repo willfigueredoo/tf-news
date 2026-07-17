@@ -3,14 +3,22 @@ import { inspectFeed } from "../lib/ingestion.ts";
 import { PRIORITY_EDITORIAL_SOURCES } from "../lib/priority-editorial-sources.ts";
 import { calculateSourceAuthorityScore, isRecentFeedItem } from "../lib/source-governance.ts";
 
-const SEED_VERSION = "2026.07.16-priority-v1";
+const SEED_VERSION = "2026.07.17-agro-wave-1";
+const AGRO_WAVE_1_KEYS = ["globo-rural", "safras-mercado", "farmnews"];
 const mode = process.argv.includes("--apply") ? "apply" : process.argv.includes("--verify-only") ? "verify" : null;
+const scope = process.argv.includes("--agro-wave-1") ? "agro-wave-1" : "all";
 
 if (!mode) {
   console.error("Uso seguro: --verify-only testa os feeds sem escrever; --apply valida e faz upsert aditivo.");
   process.exitCode = 2;
 } else {
-  const results = await verifyAll(PRIORITY_EDITORIAL_SOURCES, 4);
+  const selectedSources = scope === "agro-wave-1"
+    ? PRIORITY_EDITORIAL_SOURCES.filter((source) => AGRO_WAVE_1_KEYS.includes(source.sourceKey))
+    : PRIORITY_EDITORIAL_SOURCES;
+  if (scope === "agro-wave-1" && selectedSources.length !== AGRO_WAVE_1_KEYS.length) {
+    throw new Error("A onda agro 1 precisa conter exatamente Globo Rural, Safras & Mercado e FarmNews.");
+  }
+  const results = await verifyAll(selectedSources, 4);
   const summary = summarize(results);
   const report = results.map((result) => ({
     sourceKey: result.sourceKey,
@@ -28,7 +36,10 @@ if (!mode) {
       error: attempt.error ?? null,
     })),
   }));
-  console.log(JSON.stringify({ seedVersion: SEED_VERSION, mode, summary, sources: report }, null, 2));
+  console.log(JSON.stringify({ seedVersion: SEED_VERSION, mode, scope, summary, sources: report }, null, 2));
+  if (mode === "apply" && scope === "agro-wave-1" && results.some((result) => !result.activeForCollection)) {
+    throw new Error("A onda agro 1 foi interrompida porque pelo menos um dos três feeds não foi validado como recente.");
+  }
   if (mode === "apply") await applySeed(results);
 }
 
@@ -95,12 +106,13 @@ async function applySeed(results) {
   const sql = postgres(connectionString, { max: 1, prepare: false, connect_timeout: 10 });
   const now = new Date().toISOString();
   try {
+    const existingOperationalIds = await preflightSourceIdentities(sql, results);
     await sql.begin(async (tx) => {
       for (const result of results) {
         const source = result.source;
-        let operationalSourceId = null;
+        let operationalSourceId = existingOperationalIds.get(source.sourceKey) ?? null;
 
-        if (result.activeForCollection && result.feedUrl) {
+        if (result.activeForCollection && result.feedUrl && !operationalSourceId) {
           const existing = await tx`
             SELECT id FROM sources
             WHERE feed_url = ${result.feedUrl} OR website_url = ${source.baseUrl}
@@ -158,6 +170,7 @@ async function applySeed(results) {
             ${c.companyEvents}, ${c.operationalDisruption}, ${c.prices}, ${c.weather}, ${c.internationalTrade}, ${now}, ${now}
           )
           ON CONFLICT (source_key) DO UPDATE SET
+            operational_source_id = COALESCE(editorial_sources.operational_source_id, EXCLUDED.operational_source_id),
             name = EXCLUDED.name,
             category = EXCLUDED.category,
             subcategories = EXCLUDED.subcategories,
@@ -190,8 +203,93 @@ async function applySeed(results) {
         `;
       }
     });
-    console.log(JSON.stringify({ applied: true, seedVersion: SEED_VERSION, ...summarize(results) }));
+    console.log(JSON.stringify({ applied: true, seedVersion: SEED_VERSION, scope, ...summarize(results) }));
   } finally {
     await sql.end();
+  }
+}
+
+async function preflightSourceIdentities(sql, results) {
+  const operational = await sql`
+    SELECT id, name, domain, feed_url, website_url
+    FROM sources
+    ORDER BY id
+  `;
+  const editorial = await sql`
+    SELECT id, operational_source_id, source_key, name, domain, base_url, feed_url
+    FROM editorial_sources
+    ORDER BY id
+  `;
+  const existingOperationalIds = new Map();
+
+  for (const result of results.filter((item) => item.activeForCollection && item.feedUrl)) {
+    const source = result.source;
+    const names = new Set([source.name, ...source.aliases].map(normalizeIdentity));
+    const domains = new Set([source.domain, hostnameOf(source.baseUrl), hostnameOf(result.feedUrl)].map(normalizeDomain));
+    const domainCanIdentifySource = !domains.has("gov.br");
+    const urls = new Set([source.baseUrl, result.feedUrl, ...source.feedCandidates].map(normalizeUrl));
+    const disallowedAliasUrls = new Set(source.feedAliases.map(normalizeUrl));
+    const operationalMatches = operational.filter((row) => names.has(normalizeIdentity(row.name))
+      || (domainCanIdentifySource && domains.has(normalizeDomain(row.domain)))
+      || urls.has(normalizeUrl(row.feed_url))
+      || urls.has(normalizeUrl(row.website_url))
+      || disallowedAliasUrls.has(normalizeUrl(row.feed_url)));
+    const editorialMatches = editorial.filter((row) => names.has(normalizeIdentity(row.name))
+      || (domainCanIdentifySource && domains.has(normalizeDomain(row.domain)))
+      || urls.has(normalizeUrl(row.base_url))
+      || urls.has(normalizeUrl(row.feed_url))
+      || disallowedAliasUrls.has(normalizeUrl(row.feed_url)));
+
+    const aliasMatch = operationalMatches.find((row) => disallowedAliasUrls.has(normalizeUrl(row.feed_url)));
+    if (aliasMatch) {
+      throw new Error(`Duplicidade bloqueante: ${source.name} já está associado ao alias de feed não autorizado ${aliasMatch.feed_url}.`);
+    }
+    const foreignEditorial = editorialMatches.find((row) => row.source_key !== source.sourceKey);
+    if (foreignEditorial) {
+      throw new Error(`Duplicidade bloqueante: ${source.name} coincide com editorial_sources.source_key=${foreignEditorial.source_key}.`);
+    }
+    if (new Set(operationalMatches.map((row) => row.id)).size > 1) {
+      throw new Error(`Duplicidade bloqueante: ${source.name} coincide com mais de um registro operacional.`);
+    }
+    if (editorialMatches.length > 1) {
+      throw new Error(`Duplicidade bloqueante: ${source.name} coincide com mais de um registro editorial.`);
+    }
+
+    const operationalId = operationalMatches[0]?.id ?? editorialMatches[0]?.operational_source_id ?? null;
+    if (operationalId) existingOperationalIds.set(source.sourceKey, operationalId);
+  }
+
+  return existingOperationalIds;
+}
+
+function normalizeIdentity(value) {
+  return String(value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/&/g, " e ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function normalizeDomain(value) {
+  return String(value ?? "").trim().toLowerCase().replace(/^www\./, "");
+}
+
+function hostnameOf(value) {
+  try { return new URL(value).hostname; } catch { return ""; }
+}
+
+function normalizeUrl(value) {
+  if (!value) return "";
+  try {
+    const url = new URL(value);
+    url.hash = "";
+    url.hostname = normalizeDomain(url.hostname);
+    url.pathname = url.pathname.replace(/\/+$/, "") || "/";
+    url.searchParams.sort();
+    return url.toString();
+  } catch {
+    return String(value).trim().toLowerCase();
   }
 }

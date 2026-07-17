@@ -18,7 +18,8 @@
     "db:check": "node --env-file-if-exists=.env.local scripts/check-database.mjs",
     "db:check:schema": "node --env-file-if-exists=.env.local scripts/check-schema.mjs",
     "sources:verify": "node --experimental-strip-types scripts/seed-editorial-sources.mjs --verify-only",
-    "db:seed:sources": "node --experimental-strip-types --env-file-if-exists=.env.local scripts/seed-editorial-sources.mjs --apply"
+    "db:seed:sources": "node --experimental-strip-types --env-file-if-exists=.env.local scripts/seed-editorial-sources.mjs --apply",
+    "db:seed:sources:agro-wave-1": "node --experimental-strip-types --env-file-if-exists=.env.local scripts/seed-editorial-sources.mjs --apply --agro-wave-1"
   },
   "dependencies": {
     "drizzle-orm": "0.45.2",

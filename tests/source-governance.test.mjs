@@ -9,8 +9,8 @@ import {
   sourceEditorialDisposition,
 } from "../lib/source-governance.ts";
 
-test("mantém whitelist prioritária com 35 chaves estáveis e sem fontes fictícias ativas", () => {
-  assert.equal(PRIORITY_EDITORIAL_SOURCES.length, 35);
+test("mantém whitelist prioritária com 38 chaves estáveis e sem fontes fictícias ativas", () => {
+  assert.equal(PRIORITY_EDITORIAL_SOURCES.length, 38);
   const keys = PRIORITY_EDITORIAL_SOURCES.map((source) => source.sourceKey);
   assert.equal(new Set(keys).size, keys.length);
   assert.equal(PRIORITY_EDITORIAL_SOURCES.some((source) => source.relatedIcps.includes("Todos os ICPs")), false);
@@ -28,7 +28,20 @@ test("trata fontes sem RSS confirmado como referência e candidatos como dados n
     "agencia-noticias-ibge",
     "receita-federal",
     "cemaden",
+    "globo-rural",
+    "safras-mercado",
+    "farmnews",
   ]);
+});
+
+test("onda agro contém somente as três fontes autorizadas e protege o alias do Globo Rural", () => {
+  const agroWave = PRIORITY_EDITORIAL_SOURCES.filter((source) => ["globo-rural", "safras-mercado", "farmnews"].includes(source.sourceKey));
+  assert.deepEqual(agroWave.map((source) => source.name), ["Globo Rural", "Safras & Mercado", "FarmNews"]);
+  assert.ok(agroWave.every((source) => source.relatedIcps.includes("Agronegócio")));
+  assert.ok(agroWave.every((source) => source.editorialRole === "discovery"));
+  const globo = agroWave.find((source) => source.sourceKey === "globo-rural");
+  assert.deepEqual(globo.feedCandidates, ["https://globorural.globo.com/rss/globorural"]);
+  assert.deepEqual(globo.feedAliases, ["https://pox.globo.com/rss/globorural/"]);
 });
 
 test("calcula autoridade com base por tipo e penalidades cumulativas", () => {
@@ -93,6 +106,9 @@ test("seed usa transação e conflito idempotente sem apagar ou sobrescrever con
   assert.match(implementation, /sql\.begin/);
   assert.match(implementation, /ON CONFLICT \(source_key\) DO UPDATE SET/);
   assert.match(implementation, /ON CONFLICT \(feed_url\) DO NOTHING/);
+  assert.match(implementation, /--agro-wave-1/);
+  assert.match(implementation, /preflightSourceIdentities/);
+  assert.match(implementation, /feedAliases/);
   assert.doesNotMatch(implementation, /\b(?:DELETE\s+FROM|TRUNCATE|DROP\s+TABLE)\b/i);
   const updateClause = implementation.split("ON CONFLICT (source_key) DO UPDATE SET")[1];
   assert.doesNotMatch(updateClause, /\b(?:feed_url|base_url|status|editorial_notes|last_verified_at|active_for_collection|monitoring_mode)\s*=/i);
