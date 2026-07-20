@@ -25,17 +25,23 @@ test("favicon oficial possui fallback e suporte para dispositivos móveis", asyn
   assert.match(layout, /\/favicon\.svg/);
 });
 
-test("navegação de marca, tooltips e logos adaptativas permanecem acessíveis", async () => {
+test("navegação de marca, tooltips e branding nativo permanecem acessíveis", async () => {
   const app = await readFile(path.join(root, "app", "tf-news-app.tsx"), "utf8");
   const styles = await readFile(path.join(root, "app", "globals.css"), "utf8");
 
-  assert.match(app, /aria-label="Ir para Visão Executiva"/);
+  assert.match(app, /aria-label="Ir para Painel Executivo"/);
   assert.match(app, /data-tooltip=/);
-  assert.match(app, /tf-news-banner-dark\.png/);
-  assert.match(app, /className="sidebar-wordmark"/);
+  assert.doesNotMatch(app, /tf-news-banner-dark\.png|header-banner/);
+  assert.match(app, /className="header-brand-name"/);
+  assert.match(app, /className="sidebar-brand"/);
+  assert.match(app, /Editorial Intelligence/);
+  assert.match(app, /VIEW_TITLES/);
   assert.doesNotMatch(app, /header-logo-light|header-logo-dark/);
   assert.doesNotMatch(app, /sidebar-logo|className="crumb"/);
-  assert.match(styles, /\.header-banner \{[^}]*height: 52px;/);
+  assert.match(styles, /--background-header:/);
+  assert.match(styles, /--font-family-editorial:/);
+  assert.match(styles, /--opacity-watermark: \.018/);
+  assert.match(styles, /\.header-brand-name/);
   assert.match(styles, /\.nav-button:hover::after, \.nav-button:focus-visible::after/);
 });
 
