@@ -31,9 +31,11 @@ test("navegação de marca, tooltips e logos adaptativas permanecem acessíveis"
 
   assert.match(app, /aria-label="Ir para Visão Executiva"/);
   assert.match(app, /data-tooltip=/);
-  assert.match(app, /header-logo-light/);
-  assert.match(app, /header-logo-dark/);
-  assert.match(styles, /html\[data-theme="dark"\] \.header-logo-light \{ display: none; \}/);
+  assert.match(app, /tf-news-banner-dark\.png/);
+  assert.match(app, /className="sidebar-wordmark"/);
+  assert.doesNotMatch(app, /header-logo-light|header-logo-dark/);
+  assert.doesNotMatch(app, /sidebar-logo|className="crumb"/);
+  assert.match(styles, /\.header-banner \{[^}]*height: 52px;/);
   assert.match(styles, /\.nav-button:hover::after, \.nav-button:focus-visible::after/);
 });
 

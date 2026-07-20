@@ -60,8 +60,7 @@ test("mantém a experiência principal e remove o starter", async () => {
   assert.match(history, /Histórico de coletas/);
   assert.match(app, /Abrir no WordPress/);
   assert.match(layout, /TF News — Inteligência editorial/);
-  assert.match(app, /tf-news-icon\.png/);
-  assert.match(app, /tf-news-horizontal\.png/);
+  assert.match(app, /tf-news-banner-dark\.png/);
   assert.match(layout, /favicon\.ico/);
   assert.match(layout, /tf-news-theme/);
   assert.match(css, /#e30613/i);
