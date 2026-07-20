@@ -9,8 +9,8 @@ import {
   sourceEditorialDisposition,
 } from "../lib/source-governance.ts";
 
-test("mantém whitelist prioritária com 38 chaves estáveis e sem fontes fictícias ativas", () => {
-  assert.equal(PRIORITY_EDITORIAL_SOURCES.length, 38);
+test("mantém whitelist prioritária com 50 chaves estáveis e sem fontes fictícias ativas", () => {
+  assert.equal(PRIORITY_EDITORIAL_SOURCES.length, 50);
   const keys = PRIORITY_EDITORIAL_SOURCES.map((source) => source.sourceKey);
   assert.equal(new Set(keys).size, keys.length);
   assert.equal(PRIORITY_EDITORIAL_SOURCES.some((source) => source.relatedIcps.includes("Todos os ICPs")), false);
@@ -31,6 +31,13 @@ test("trata fontes sem RSS confirmado como referência e candidatos como dados n
     "globo-rural",
     "safras-mercado",
     "farmnews",
+    "cfq",
+    "sinproquim",
+    "plastico",
+    "frota-cia",
+    "logweb",
+    "abiec",
+    "feed-food",
   ]);
 });
 
@@ -42,6 +49,22 @@ test("onda agro contém somente as três fontes autorizadas e protege o alias do
   const globo = agroWave.find((source) => source.sourceKey === "globo-rural");
   assert.deepEqual(globo.feedCandidates, ["https://globorural.globo.com/rss/globorural"]);
   assert.deepEqual(globo.feedAliases, ["https://pox.globo.com/rss/globorural/"]);
+});
+
+test("onda setorial 2 separa sete feeds operacionais de cinco referências sem RSS aprovado", () => {
+  const activeKeys = ["cfq", "sinproquim", "plastico", "frota-cia", "logweb", "abiec", "feed-food"];
+  const referenceKeys = ["revista-mt", "sobratema", "abimaq", "abiquim", "portal-elo"];
+  const active = PRIORITY_EDITORIAL_SOURCES.filter((source) => activeKeys.includes(source.sourceKey));
+  const references = PRIORITY_EDITORIAL_SOURCES.filter((source) => referenceKeys.includes(source.sourceKey));
+  assert.equal(active.length, activeKeys.length);
+  assert.ok(active.every((source) => source.feedCandidates.length >= 1));
+  assert.equal(references.length, referenceKeys.length);
+  assert.ok(references.every((source) => source.feedCandidates.length === 0));
+  assert.ok(references.every((source) => source.preferredMonitoringMode === "reference"));
+  assert.ok(active.some((source) => source.relatedIcps.includes("Máquinas e Equipamentos Pesados")));
+  assert.ok(active.some((source) => source.relatedIcps.includes("Indústria Química")));
+  assert.ok(active.some((source) => source.category.includes("Transporte Rodoviário")));
+  assert.ok(active.some((source) => source.relatedIcps.includes("Agronegócio")));
 });
 
 test("calcula autoridade com base por tipo e penalidades cumulativas", () => {
@@ -107,6 +130,7 @@ test("seed usa transação e conflito idempotente sem apagar ou sobrescrever con
   assert.match(implementation, /ON CONFLICT \(source_key\) DO UPDATE SET/);
   assert.match(implementation, /ON CONFLICT \(feed_url\) DO NOTHING/);
   assert.match(implementation, /--agro-wave-1/);
+  assert.match(implementation, /--sector-wave-2/);
   assert.match(implementation, /preflightSourceIdentities/);
   assert.match(implementation, /feedAliases/);
   assert.doesNotMatch(implementation, /\b(?:DELETE\s+FROM|TRUNCATE|DROP\s+TABLE)\b/i);

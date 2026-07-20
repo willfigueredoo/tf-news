@@ -3,20 +3,35 @@ import { inspectFeed } from "../lib/ingestion.ts";
 import { PRIORITY_EDITORIAL_SOURCES } from "../lib/priority-editorial-sources.ts";
 import { calculateSourceAuthorityScore, isRecentFeedItem } from "../lib/source-governance.ts";
 
-const SEED_VERSION = "2026.07.17-agro-wave-1";
+const SEED_VERSION = "2026.07.20-sector-wave-2";
 const AGRO_WAVE_1_KEYS = ["globo-rural", "safras-mercado", "farmnews"];
+const SECTOR_WAVE_2_ACTIVE_KEYS = ["cfq", "sinproquim", "plastico", "frota-cia", "logweb", "abiec", "feed-food"];
+const SECTOR_WAVE_2_REFERENCE_KEYS = ["revista-mt", "sobratema", "abimaq", "abiquim", "portal-elo"];
+const SECTOR_WAVE_2_KEYS = [...SECTOR_WAVE_2_ACTIVE_KEYS, ...SECTOR_WAVE_2_REFERENCE_KEYS];
 const mode = process.argv.includes("--apply") ? "apply" : process.argv.includes("--verify-only") ? "verify" : null;
-const scope = process.argv.includes("--agro-wave-1") ? "agro-wave-1" : "all";
+const scope = process.argv.includes("--agro-wave-1")
+  ? "agro-wave-1"
+  : process.argv.includes("--sector-wave-2")
+    ? "sector-wave-2"
+    : "all";
 
 if (!mode) {
   console.error("Uso seguro: --verify-only testa os feeds sem escrever; --apply valida e faz upsert aditivo.");
   process.exitCode = 2;
 } else {
-  const selectedSources = scope === "agro-wave-1"
-    ? PRIORITY_EDITORIAL_SOURCES.filter((source) => AGRO_WAVE_1_KEYS.includes(source.sourceKey))
+  const scopedKeys = scope === "agro-wave-1"
+    ? AGRO_WAVE_1_KEYS
+    : scope === "sector-wave-2"
+      ? SECTOR_WAVE_2_KEYS
+      : null;
+  const selectedSources = scopedKeys
+    ? PRIORITY_EDITORIAL_SOURCES.filter((source) => scopedKeys.includes(source.sourceKey))
     : PRIORITY_EDITORIAL_SOURCES;
   if (scope === "agro-wave-1" && selectedSources.length !== AGRO_WAVE_1_KEYS.length) {
     throw new Error("A onda agro 1 precisa conter exatamente Globo Rural, Safras & Mercado e FarmNews.");
+  }
+  if (scope === "sector-wave-2" && selectedSources.length !== SECTOR_WAVE_2_KEYS.length) {
+    throw new Error("A onda setorial 2 precisa conter exatamente as 12 fontes aprovadas.");
   }
   const results = await verifyAll(selectedSources, 4);
   const summary = summarize(results);
@@ -39,6 +54,13 @@ if (!mode) {
   console.log(JSON.stringify({ seedVersion: SEED_VERSION, mode, scope, summary, sources: report }, null, 2));
   if (mode === "apply" && scope === "agro-wave-1" && results.some((result) => !result.activeForCollection)) {
     throw new Error("A onda agro 1 foi interrompida porque pelo menos um dos três feeds não foi validado como recente.");
+  }
+  if (mode === "apply" && scope === "sector-wave-2") {
+    const invalidActive = results.filter((result) => SECTOR_WAVE_2_ACTIVE_KEYS.includes(result.sourceKey) && !result.activeForCollection);
+    const invalidReferences = results.filter((result) => SECTOR_WAVE_2_REFERENCE_KEYS.includes(result.sourceKey) && result.status !== "reference");
+    if (invalidActive.length || invalidReferences.length) {
+      throw new Error(`A onda setorial 2 foi interrompida: feeds inválidos=${invalidActive.map((item) => item.sourceKey).join(",") || "nenhum"}; referências inválidas=${invalidReferences.map((item) => item.sourceKey).join(",") || "nenhuma"}.`);
+    }
   }
   if (mode === "apply") await applySeed(results);
 }
@@ -222,13 +244,13 @@ async function preflightSourceIdentities(sql, results) {
   `;
   const existingOperationalIds = new Map();
 
-  for (const result of results.filter((item) => item.activeForCollection && item.feedUrl)) {
+  for (const result of results) {
     const source = result.source;
     const names = new Set([source.name, ...source.aliases].map(normalizeIdentity));
-    const domains = new Set([source.domain, hostnameOf(source.baseUrl), hostnameOf(result.feedUrl)].map(normalizeDomain));
+    const domains = new Set([source.domain, hostnameOf(source.baseUrl), hostnameOf(result.feedUrl)].map(normalizeDomain).filter(Boolean));
     const domainCanIdentifySource = !domains.has("gov.br");
-    const urls = new Set([source.baseUrl, result.feedUrl, ...source.feedCandidates].map(normalizeUrl));
-    const disallowedAliasUrls = new Set(source.feedAliases.map(normalizeUrl));
+    const urls = new Set([source.baseUrl, result.feedUrl, ...source.feedCandidates].map(normalizeUrl).filter(Boolean));
+    const disallowedAliasUrls = new Set(source.feedAliases.map(normalizeUrl).filter(Boolean));
     const operationalMatches = operational.filter((row) => names.has(normalizeIdentity(row.name))
       || (domainCanIdentifySource && domains.has(normalizeDomain(row.domain)))
       || urls.has(normalizeUrl(row.feed_url))
