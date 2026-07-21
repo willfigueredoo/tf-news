@@ -87,18 +87,11 @@ export function ExecutiveDashboard({ globalIcp, onMonitor, onLibrary, notify }: 
     <section className="dashboard-hero editorial-hero">
       <div>
         <div className="eyebrow"><span className="signal-pulse" /> Inteligência editorial calculada</div>
-        <h1>O estado atual dos mercados, sem interferência das ações do usuário.</h1>
+        <h1>Notícia do Dia</h1>
         <p className="subtitle">Escopo: {summary.scope.icp} · cálculo atualizado {formatDate(summary.calculatedAt)}.</p>
       </div>
       <button className="secondary" onClick={onMonitor}>Abrir Monitoramento</button>
     </section>
-
-    <div className="executive-strip">
-      {metrics.map(([label, value, period]) => <div key={label}><strong>{value}</strong><span>{label}</span><small>{period}</small></div>)}
-      <DominanceMetric label="ICP dominante" value={summary.kpis.dominantIcp} period={summary.periods.dominance} />
-      <DominanceMetric label="Tema dominante" value={summary.kpis.dominantTopic} period={summary.periods.dominance} />
-      <DominanceMetric label="Fonte mais recorrente" value={summary.kpis.recurringSource} period={summary.periods.dominance} />
-    </div>
 
     {story ? <section className="card day-story">
       <div className="day-story-main">
@@ -123,6 +116,13 @@ export function ExecutiveDashboard({ globalIcp, onMonitor, onLibrary, notify }: 
       </div>
       <ScoreBreakdown decision={story} />
     </section> : <div className="card empty"><strong>Nenhuma Notícia do Dia no escopo selecionado</strong>Não há candidata válida nas últimas 72 horas.</div>}
+
+    <div className="executive-strip">
+      {metrics.map(([label, value, period]) => <div key={label}><strong>{value}</strong><span>{label}</span><small>{period}</small></div>)}
+      <DominanceMetric label="ICP dominante" value={summary.kpis.dominantIcp} period={summary.periods.dominance} />
+      <DominanceMetric label="Tema dominante" value={summary.kpis.dominantTopic} period={summary.periods.dominance} />
+      <DominanceMetric label="Fonte mais recorrente" value={summary.kpis.recurringSource} period={summary.periods.dominance} />
+    </div>
 
     <div className="executive-secondary-grid">
       <section className="editorial-section">
