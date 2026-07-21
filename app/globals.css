@@ -504,6 +504,14 @@ textarea.field { min-height: 96px; resize: vertical; line-height: 1.55; }
 .last-kit-card h2 { margin: 0; color: var(--text-strong); font-size: 17px; letter-spacing: -.025em; }
 .last-kit-card > strong { color: var(--text); font-size: 12px; line-height: 1.5; }
 .last-kit-card p { margin: 0; color: var(--muted); font-size: 9px; line-height: 1.5; }
+.queue-list { display: grid; gap: 10px; }
+.queue-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px 24px; align-items: start; padding: 20px; }
+.queue-item.highlight { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); box-shadow: 0 0 0 3px var(--accent-soft); }
+.queue-item h2 { margin: 6px 0 9px; color: var(--text-strong); font-size: 16px; line-height: 1.35; }
+.queue-item > .inline-actions { grid-column: 1 / -1; }
+.status.queue-generating { background: var(--warning-soft); color: var(--warning); }
+.status.queue-ready, .status.queue-approved { background: var(--green-soft); color: var(--green); }
+.status.queue-archived { background: var(--surface-soft); color: var(--muted); }
 .radar-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .radar-card { position: relative; min-height: 180px; padding: 22px; }
 .radar-card h2, .insight-card h2 { max-width: 85%; margin: 0; color: var(--text); font-size: 14px; line-height: 1.35; }

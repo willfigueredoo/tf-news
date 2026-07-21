@@ -1,13 +1,16 @@
 "use client";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { ICP_CATALOG } from "../lib/editorial";
+import { useEscapeKey } from "../lib/use-escape-key";
 import { EditorialIntelligence } from "./editorial-intelligence";
+import { EditorialQueue } from "./editorial-queue";
 import { ExecutiveDashboard } from "./executive-dashboard";
 import { MonitoringWorkspace } from "./monitoring-workspace";
 import { OperationsHistory } from "./operations-history";
 import { SourceManager } from "./source-manager";
 
-type View = "Visão Executiva" | "Monitoramento" | "Biblioteca" | "Radar" | "Insights" | "Configurações" | "Criar Conteúdo" | "Conteúdos";
+type View = "Visão Executiva" | "Monitoramento" | "Fila Editorial" | "Biblioteca" | "Radar" | "Insights" | "Configurações" | "Criar Conteúdo" | "Conteúdos";
+type WorkflowConflict = { code: string; newsId: number; queueId: number | null; queueStatus: string | null; kitId: number | null; options: string[] };
 type News = { id: number; title: string; originalUrl: string; sourceId: number; sourceName: string; domain?: string; author?: string | null; publishedAt: string; collectedAt: string; excerpt: string; content: string; region: string; logisticsImpact: "low" | "medium" | "high"; relevanceScore: number; status: string; topics: string[]; icps: string[]; primaryIcp: string; secondaryIcps: string[]; classificationReason: string; classificationMethod: string; read?: boolean; readAt?: string | null; favorite?: boolean; archived?: boolean; archivedAt?: string | null; internalNotes?: string; manualOverride?: boolean; collectionRunId?: string | null };
 type Source = { id: number; name: string; domain: string; feedUrl: string; websiteUrl: string | null; type?: string; status?: string; reliabilityScore: number; active: boolean; health?: string; priority?: number; collectionFrequencyMinutes?: number; language?: string; country?: string; region?: string; relatedIcps?: string[]; notes?: string; lastCollectedAt: string | null; lastSuccessAt: string | null; lastFailureAt: string | null; lastError: string | null; lastStatus: string; lastDurationMs: number | null; lastHttpStatus: number | null; lastItemCount: number; consecutiveFailures: number; nextCollectionAt?: string | null; archivedAt?: string | null; totalNewsCollected?: number; averageResponseMs?: number };
 type Brief = { id: number; title: string; summary: string; mainEvent: string; primaryIcp: string; secondaryIcps: string[]; topics: string[]; regions: string[]; importance: string; opportunity: string; logisticsImpact: string; suggestedTitle: string; alternativeTitles: string[]; structure: string[]; cta: string; warnings: string[] };
@@ -16,13 +19,14 @@ type AiStatus = { configured: boolean; provider: string | null; model: string | 
 type OperationalLogs = { jobs: Array<Record<string, unknown>>; ai: Array<Record<string, unknown>>; collectionRuns?: Array<Record<string, unknown>>; dashboard?: Record<string, unknown> };
 
 const VIEWS: { name: View; icon: string }[] = [
-  { name: "Visão Executiva", icon: "⌂" }, { name: "Monitoramento", icon: "◉" }, { name: "Biblioteca", icon: "▤" },
+  { name: "Visão Executiva", icon: "⌂" }, { name: "Monitoramento", icon: "◉" }, { name: "Fila Editorial", icon: "◫" }, { name: "Biblioteca", icon: "▤" },
   { name: "Radar", icon: "⌁" }, { name: "Insights", icon: "✦" }, { name: "Configurações", icon: "⚙" },
 ];
 
 const VIEW_TITLES: Record<View, string> = {
   "Visão Executiva": "Painel Executivo",
   Monitoramento: "Radar de Notícias",
+  "Fila Editorial": "Fila Editorial",
   Biblioteca: "Biblioteca Editorial",
   Radar: "Arquitetura SEO",
   Insights: "Insights",
@@ -58,6 +62,8 @@ export function TFNewsApp({ userName, userEmail, initialUpdatedAt }: { userName:
   const [objective, setObjective] = useState("Analisar o acontecimento e explicar impactos para operação, distribuição e transporte.");
   const [keyword, setKeyword] = useState("logística B2B");
   const [libraryKitId, setLibraryKitId] = useState<number | null>(null);
+  const [queueFocusId, setQueueFocusId] = useState<number | null>(null);
+  const [workflowConflict, setWorkflowConflict] = useState<WorkflowConflict | null>(null);
 
   const notify = useCallback((message: string) => { setToast(message); window.setTimeout(() => setToast(null), 5000); }, []);
   const refreshAll = useCallback(async () => {
@@ -91,11 +97,64 @@ export function TFNewsApp({ userName, userEmail, initialUpdatedAt }: { userName:
   function chooseView(next: View) { setView(next); window.scrollTo({ top: 0, behavior: "smooth" }); }
   function toggleTheme() { const root = document.documentElement; const next = root.dataset.theme === "dark" ? "light" : "dark"; root.dataset.theme = next; root.style.colorScheme = next; window.localStorage.setItem("tf-news-theme", next); }
   function toggleNews(id: number) { setSelected((current) => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; }); }
-  function startContent() {
-    if (!liveSelected.length) return notify("Selecione ao menos uma notícia real no Monitoramento.");
-    notify("A geração direta com rastreabilidade pela Fila Editorial será habilitada na Fase 2.");
+  async function startContent() {
+    if (!liveSelected.length || busy) return notify("Selecione ao menos uma notícia real no Monitoramento.");
+    setBusy(true);
+    try {
+      const prepared = await fetch("/api/editorial-queue", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "prepare", newsIds: liveSelected }) });
+      const preparation = await prepared.json() as { items?: Array<{ newsId: number; conflict: WorkflowConflict | null }>; error?: string };
+      if (!prepared.ok) throw new Error(preparation.error ?? "Não foi possível preparar a geração editorial.");
+      const conflict = preparation.items?.find((item) => item.conflict)?.conflict;
+      if (conflict) { setWorkflowConflict(conflict); return; }
+
+      let lastKitId: number | null = null; let completed = 0; const failures: string[] = [];
+      for (const newsId of liveSelected) {
+        try {
+          const response = await fetch("/api/editorial-queue", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "generate", newsId }) });
+          const data = await response.json() as { kit?: { id: number }; conflict?: WorkflowConflict; error?: string };
+          if (response.status === 409 && data.conflict) { setWorkflowConflict(data.conflict); break; }
+          if (!response.ok || !data.kit) throw new Error(data.error ?? `Falha ao gerar a pauta ${newsId}.`);
+          lastKitId = data.kit.id; completed += 1;
+        } catch (error) { failures.push(error instanceof Error ? error.message : `Falha na pauta ${newsId}.`); }
+      }
+      if (lastKitId) {
+        setSelected(new Set());
+        openLibraryKit(lastKitId);
+        notify(`${completed} Kit(s) gerado(s), registrado(s) na Fila e salvo(s) na Biblioteca.${failures.length ? ` ${failures.length} pauta(s) retornaram para revisão.` : ""}`);
+      } else if (failures.length) throw new Error(failures[0]);
+    } catch (error) { notify(error instanceof Error ? error.message : "Falha ao gerar o Kit Editorial."); }
+    finally { setBusy(false); }
+  }
+
+  async function addToEditorialQueue() {
+    if (!liveSelected.length || busy) return;
+    setBusy(true);
+    try {
+      const response = await fetch("/api/editorial-queue", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "enqueue", newsIds: liveSelected }) });
+      const data = await response.json() as { created?: Array<{ id: number }>; conflicts?: WorkflowConflict[]; error?: string };
+      if (!response.ok) throw new Error(data.error ?? "Não foi possível criar as pautas.");
+      if (data.conflicts?.length) setWorkflowConflict(data.conflicts[0]);
+      if (data.created?.length) {
+        setSelected(new Set()); setQueueFocusId(data.created[0].id); chooseView("Fila Editorial");
+        notify(`${data.created.length} pauta(s) adicionada(s) à Fila Editorial.`);
+      }
+    } catch (error) { notify(error instanceof Error ? error.message : "Falha ao adicionar à Fila Editorial."); }
+    finally { setBusy(false); }
+  }
+
+  async function resolveGenerationConflict(mode: "existing" | "new_version") {
+    if (!workflowConflict || busy) return;
+    setBusy(true);
+    try {
+      const response = await fetch("/api/editorial-queue", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "generate", newsId: workflowConflict.newsId, ...(mode === "existing" ? { queueId: workflowConflict.queueId } : { mode: "new_version" }) }) });
+      const data = await response.json() as { kit?: { id: number }; error?: string };
+      if (!response.ok || !data.kit) throw new Error(data.error ?? "A geração não foi concluída.");
+      setWorkflowConflict(null); setSelected(new Set()); openLibraryKit(data.kit.id); notify("Nova versão gerada e salva na Biblioteca.");
+    } catch (error) { notify(error instanceof Error ? error.message : "Falha ao resolver a duplicidade editorial."); }
+    finally { setBusy(false); }
   }
   function openLibraryKit(kitId: number) { setLibraryKitId(kitId); chooseView("Biblioteca"); }
+  function openQueueItem(queueId: number) { setWorkflowConflict(null); setQueueFocusId(queueId); chooseView("Fila Editorial"); }
 
   // Kept temporarily for the legacy monitor while the operational workspace is stabilized.
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -163,7 +222,8 @@ export function TFNewsApp({ userName, userEmail, initialUpdatedAt }: { userName:
     <main className="main"><header className="topbar"><div className="header-context"><button className="header-brand" type="button" onClick={() => chooseView("Visão Executiva")} aria-label="Ir para Painel Executivo"><span className="header-brand-name"><strong>TF</strong><em>NEWS</em></span><span className="header-brand-rule" aria-hidden="true" /></button><div className="header-copy"><div className="page-name">{VIEW_TITLES[view]}</div><div className="update-time">Atualizado às {lastUpdated}</div></div></div><div className="top-actions"><select className="global-select" value={globalIcp} onChange={(event) => setGlobalIcp(event.target.value)} aria-label="Filtrar todo o sistema por ICP"><option>Todos os ICPs</option>{ICP_CATALOG.map((icp) => <option key={icp.slug}>{icp.name}</option>)}</select><button className="theme-toggle" onClick={toggleTheme} aria-label="Alternar entre modo claro e escuro" title="Alternar tema"><span className="theme-icon-light" aria-hidden="true">☼</span><span className="theme-icon-dark" aria-hidden="true">◐</span></button><div className="user-chip" title={userEmail}><div className="avatar">{initials(userName)}</div><div className="user-copy"><strong>{userName}</strong><span>Editor</span></div></div></div></header>
       <div className="content">{dataError && <div className="notice">{dataError}</div>}
         {view === "Visão Executiva" && <ExecutiveDashboard globalIcp={globalIcp} onMonitor={() => chooseView("Monitoramento")} onLibrary={openLibraryKit} notify={notify} />}
-        {view === "Monitoramento" && <MonitoringWorkspace news={filteredNews} sources={sources} selected={selected} search={search} setSearch={setSearch} toggleNews={toggleNews} toggleAll={(ids) => setSelected(new Set(ids))} startContent={startContent} refresh={refreshAll} notify={notify} busy={busy} setBusy={setBusy} aiConfigured={Boolean(aiStatus?.configured)} />}
+        {view === "Monitoramento" && <MonitoringWorkspace news={filteredNews} sources={sources} selected={selected} search={search} setSearch={setSearch} toggleNews={toggleNews} toggleAll={(ids) => setSelected(new Set(ids))} startContent={() => void startContent()} startQueue={() => void addToEditorialQueue()} refresh={refreshAll} notify={notify} busy={busy} setBusy={setBusy} aiConfigured={Boolean(aiStatus?.configured)} />}
+        {view === "Fila Editorial" && <EditorialQueue initialQueueId={queueFocusId} onOpenKit={openLibraryKit} notify={notify} />}
         {view === "Biblioteca" && <EditorialIntelligence mode="library" wordpressBaseUrl={wordpressBaseUrl} initialKitId={libraryKitId} onMonitor={() => chooseView("Monitoramento")} notify={notify} />}
         {view === "Radar" && <EditorialIntelligence mode="radar" wordpressBaseUrl={wordpressBaseUrl} onMonitor={() => chooseView("Monitoramento")} notify={notify} />}
         {view === "Insights" && <EditorialIntelligence mode="insights" wordpressBaseUrl={wordpressBaseUrl} onMonitor={() => chooseView("Monitoramento")} notify={notify} />}
@@ -171,8 +231,17 @@ export function TFNewsApp({ userName, userEmail, initialUpdatedAt }: { userName:
         {view === "Conteúdos" && <Contents articles={articles} busy={busy} wpConfigured={wpConfigured} openArticle={(item) => { setArticle(item); chooseView("Criar Conteúdo"); }} sendWordPress={sendWordPress} />}
         {view === "Configurações" && <Settings tab={settingsTab} setTab={setSettingsTab} sources={sources} wpConfigured={wpConfigured} aiStatus={aiStatus} logs={logs} busy={busy} setBusy={setBusy} notify={notify} refresh={refreshAll} />}
       </div></main>
-    <nav className="mobile-nav" aria-label="Navegação móvel">{VIEWS.map((item) => <button key={item.name} className={view === item.name ? "active" : ""} onClick={() => chooseView(item.name)} aria-label={item.name}><span aria-hidden="true">{item.icon}</span>{item.name === "Visão Executiva" ? "Visão" : item.name}</button>)}</nav>{toast && <div className="toast" role="status">{toast}</div>}
+    <nav className="mobile-nav" aria-label="Navegação móvel">{VIEWS.map((item) => <button key={item.name} className={view === item.name ? "active" : ""} onClick={() => chooseView(item.name)} aria-label={item.name}><span aria-hidden="true">{item.icon}</span>{item.name === "Visão Executiva" ? "Visão" : item.name === "Fila Editorial" ? "Fila" : item.name}</button>)}</nav>{workflowConflict && <WorkflowConflictModal conflict={workflowConflict} busy={busy} onCancel={() => setWorkflowConflict(null)} onOpenQueue={openQueueItem} onOpenKit={(kitId) => { setWorkflowConflict(null); openLibraryKit(kitId); }} onGenerate={(mode) => void resolveGenerationConflict(mode)} />}{toast && <div className="toast" role="status">{toast}</div>}
   </div>;
+}
+
+function WorkflowConflictModal({ conflict, busy, onCancel, onOpenQueue, onOpenKit, onGenerate }: {
+  conflict: WorkflowConflict; busy: boolean; onCancel: () => void; onOpenQueue: (id: number) => void;
+  onOpenKit: (id: number) => void; onGenerate: (mode: "existing" | "new_version") => void;
+}) {
+  useEscapeKey(onCancel, !busy);
+  const generating = conflict.code === "generation_in_progress";
+  return <div className="modal-backdrop" role="presentation"><section className="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="workflow-conflict-title"><div className="eyebrow">Rastreabilidade editorial</div><h2 id="workflow-conflict-title">Este conteúdo já possui uma jornada ativa</h2><p>{generating ? "Já existe uma geração em andamento. Aguarde a conclusão ou abra a pauta existente." : conflict.code === "existing_kit" ? "Já existe um Kit concluído para esta notícia. Escolha como deseja continuar." : "Já existe uma pauta ativa para esta notícia."}</p><div className="inline-actions wrap">{conflict.queueId && <button className="secondary" onClick={() => onOpenQueue(conflict.queueId!)}>Abrir pauta existente</button>}{conflict.kitId && <button className="secondary" onClick={() => onOpenKit(conflict.kitId!)}>Abrir Kit existente</button>}{conflict.code === "active_queue" && !conflict.kitId && <button className="primary" disabled={busy} onClick={() => onGenerate("existing")}>Gerar pauta existente</button>}{conflict.code === "existing_kit" && <button className="primary" disabled={busy} onClick={() => onGenerate("new_version")}>Gerar nova versão</button>}<button className="ghost" disabled={busy} onClick={onCancel}>Cancelar</button></div></section></div>;
 }
 
 // Legacy operational dashboard retained for rollback compatibility.

@@ -52,9 +52,10 @@ test("mantém a experiência principal e remove o starter", async () => {
   assert.match(app, /SourceManager/);
   assert.match(app, /OperationsHistory/);
   assert.match(monitoring, /Exportar CSV/);
-  assert.match(monitoring, /Marcar lidas/);
-  assert.match(monitoring, /Marcar não lidas/);
   assert.match(monitoring, /Aplicar ICP/);
+  assert.match(monitoring, /Adicionar à Fila Editorial/);
+  assert.match(monitoring, /Gerar Kit/);
+  assert.match(app, /WorkflowConflictModal/);
   assert.match(sourceManager, /Coletar agora/);
   assert.match(sourceManager, /Importar CSV/);
   assert.match(history, /Histórico de coletas/);
@@ -90,6 +91,7 @@ test("mantém a experiência principal e remove o starter", async () => {
   assert.match(readyRoute, /schema_pending/);
   assert.match(readyRoute, /news_item_history/);
   assert.match(readyRoute, /editorial_kits/);
+  assert.match(readyRoute, /editorial_queue/);
   assert.doesNotMatch(vercelConfig, /\.next/);
   assert.doesNotMatch(`${page}${app}${layout}${packageJson}`, /codex-preview|Your site is taking shape|react-loading-skeleton/);
 });

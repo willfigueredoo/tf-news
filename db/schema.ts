@@ -8,6 +8,7 @@ import {
   text,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 
 export const sources = pgTable("sources", {
   id: serial("id").primaryKey(),
@@ -210,6 +211,30 @@ export const editorialKits = pgTable("editorial_kits", {
 }, (table) => [
   index("editorial_kits_news_idx").on(table.newsItemId, table.createdAt),
   index("editorial_kits_status_idx").on(table.status, table.updatedAt),
+]);
+
+export const editorialQueue = pgTable("editorial_queue", {
+  id: serial("id").primaryKey(),
+  newsItemId: integer("news_item_id").notNull().references(() => newsItems.id),
+  editorialKitId: integer("editorial_kit_id").references(() => editorialKits.id),
+  title: text("title").notNull(),
+  status: text("status").notNull().default("new"),
+  origin: text("origin").notNull().default("monitoring"),
+  version: integer("version").notNull().default(1),
+  requestedBy: text("requested_by"),
+  lastError: text("last_error"),
+  startedAt: text("started_at"),
+  completedAt: text("completed_at"),
+  archivedAt: text("archived_at"),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+}, (table) => [
+  uniqueIndex("editorial_queue_news_version_unique").on(table.newsItemId, table.version),
+  uniqueIndex("editorial_queue_active_news_unique").on(table.newsItemId)
+    .where(sql`${table.status} in ('new', 'analysis', 'approved', 'generating') and ${table.archivedAt} is null`),
+  index("editorial_queue_status_idx").on(table.status, table.updatedAt),
+  index("editorial_queue_news_idx").on(table.newsItemId, table.createdAt),
+  index("editorial_queue_kit_idx").on(table.editorialKitId),
 ]);
 
 export const editorialKitSources = pgTable("editorial_kit_sources", {

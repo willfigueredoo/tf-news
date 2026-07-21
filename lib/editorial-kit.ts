@@ -8,7 +8,7 @@ import type { EditorialDecision } from "./editorial-intelligence.ts";
 export const EDITORIAL_KIT_TIMEOUT_MS = 54_000;
 export const EDITORIAL_KIT_MAX_OUTPUT_TOKENS = 1_800;
 
-type GenerationOptions = { fetchImpl?: typeof fetch; now?: Date; phaseLogger?: AiPhaseLogger; delayImpl?: (ms: number) => Promise<void> };
+type GenerationOptions = { fetchImpl?: typeof fetch; now?: Date; phaseLogger?: AiPhaseLogger; delayImpl?: (ms: number) => Promise<void>; queueId?: number };
 type CompatibilityContext = {
   newsId: number;
   title: string;
@@ -201,8 +201,13 @@ export async function createEditorialKit(db: Database, config: AiConfig, decisio
   phaseLogger({ phase: "persistence_start", operation: "editorial-kit", provider: config.provider, model: config.model, elapsedMs: Date.now() - started });
   try {
     const source = payload.blog.sources[0];
-    const insert = await db.prepare("WITH inserted_kit AS (INSERT INTO editorial_kits (news_item_id, title, primary_icp, editorial_score, provider, model, payload, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?) RETURNING id) INSERT INTO editorial_kit_sources (editorial_kit_id, editorial_source_id, title, url, publisher, primary_or_secondary, authority_level, published_at, created_at) SELECT id, ?, ?, ?, ?, ?, ?, ?, ? FROM inserted_kit RETURNING editorial_kit_id AS id")
-      .bind(decision.id, payload.blog.seoTitle, decision.primaryIcp, decision.editorialScore, config.provider, config.model, JSON.stringify(payload), now, now, source.sourceId ?? null, source.title ?? decision.title, source.url, source.publisher ?? source.name, source.primaryOrSecondary ?? "contextual", source.authorityLevel ?? "medium", source.publishedAt ?? decision.publishedAt, now).run();
+    const queueAware = Boolean(options.queueId);
+    const statement = queueAware
+      ? db.prepare("WITH eligible_queue AS (SELECT id FROM editorial_queue WHERE id = ? AND status = 'generating' AND editorial_kit_id IS NULL FOR UPDATE), inserted_kit AS (INSERT INTO editorial_kits (news_item_id, title, primary_icp, editorial_score, provider, model, payload, status, created_at, updated_at) SELECT ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ? FROM eligible_queue RETURNING id), inserted_source AS (INSERT INTO editorial_kit_sources (editorial_kit_id, editorial_source_id, title, url, publisher, primary_or_secondary, authority_level, published_at, created_at) SELECT id, ?, ?, ?, ?, ?, ?, ?, ? FROM inserted_kit RETURNING editorial_kit_id), updated_queue AS (UPDATE editorial_queue SET editorial_kit_id = (SELECT id FROM inserted_kit), status = 'ready', completed_at = ?, last_error = NULL, updated_at = ? WHERE id = (SELECT id FROM eligible_queue) RETURNING id) SELECT id FROM inserted_kit")
+        .bind(options.queueId, decision.id, payload.blog.seoTitle, decision.primaryIcp, decision.editorialScore, config.provider, config.model, JSON.stringify(payload), now, now, source.sourceId ?? null, source.title ?? decision.title, source.url, source.publisher ?? source.name, source.primaryOrSecondary ?? "contextual", source.authorityLevel ?? "medium", source.publishedAt ?? decision.publishedAt, now, now, now)
+      : db.prepare("WITH inserted_kit AS (INSERT INTO editorial_kits (news_item_id, title, primary_icp, editorial_score, provider, model, payload, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?) RETURNING id) INSERT INTO editorial_kit_sources (editorial_kit_id, editorial_source_id, title, url, publisher, primary_or_secondary, authority_level, published_at, created_at) SELECT id, ?, ?, ?, ?, ?, ?, ?, ? FROM inserted_kit RETURNING editorial_kit_id AS id")
+        .bind(decision.id, payload.blog.seoTitle, decision.primaryIcp, decision.editorialScore, config.provider, config.model, JSON.stringify(payload), now, now, source.sourceId ?? null, source.title ?? decision.title, source.url, source.publisher ?? source.name, source.primaryOrSecondary ?? "contextual", source.authorityLevel ?? "medium", source.publishedAt ?? decision.publishedAt, now);
+    const insert = await statement.run();
     const id = Number(insert.meta.last_row_id);
     if (!id) throw new Error("O Kit Editorial foi gerado, mas não pôde ser salvo na Biblioteca.");
     phaseLogger({ phase: "persistence_end", operation: "editorial-kit", provider: config.provider, model: config.model, elapsedMs: Date.now() - started, status: "success" });

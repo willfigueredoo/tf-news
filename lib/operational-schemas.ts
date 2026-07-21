@@ -143,6 +143,22 @@ export const editorialKitRequestSchema = z.object({
   newsId: z.number().int().positive(),
 });
 
+export const editorialQueueRequestSchema = z.discriminatedUnion("action", [
+  z.object({ action: z.literal("prepare"), newsIds: z.array(z.number().int().positive()).min(1).max(20) }),
+  z.object({ action: z.literal("enqueue"), newsIds: z.array(z.number().int().positive()).min(1).max(20) }),
+  z.object({
+    action: z.literal("generate"),
+    newsId: z.number().int().positive(),
+    queueId: z.number().int().positive().optional(),
+    mode: z.enum(["default", "new_version"]).default("default"),
+  }),
+  z.object({
+    action: z.literal("transition"),
+    id: z.number().int().positive(),
+    target: z.enum(["new", "analysis", "approved", "generating", "ready", "published", "archived"]),
+  }),
+]);
+
 export const editorialKitDeleteSchema = z.object({
   id: z.number().int().positive(),
   confirmation: z.literal("delete_permanently"),

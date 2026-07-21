@@ -9,6 +9,7 @@ const expectedTables = [
   "editorial_briefs",
   "editorial_kit_sources",
   "editorial_kits",
+  "editorial_queue",
   "editorial_sources",
   "job_locks",
   "job_logs",
@@ -72,6 +73,21 @@ try {
     where constraint_schema = 'public'
       and constraint_name = 'editorial_kits_news_item_id_news_items_id_fk'
   `;
+  const editorialQueueIndexes = await sql`
+    select indexname
+    from pg_indexes
+    where schemaname = 'public' and tablename = 'editorial_queue'
+    order by indexname
+  `;
+  const editorialQueueForeignKeys = await sql`
+    select tc.constraint_name, rc.delete_rule, rc.update_rule
+    from information_schema.table_constraints tc
+    join information_schema.referential_constraints rc
+      on rc.constraint_schema = tc.constraint_schema and rc.constraint_name = tc.constraint_name
+    where tc.constraint_schema = 'public' and tc.constraint_type = 'FOREIGN KEY'
+      and tc.table_name = 'editorial_queue'
+    order by tc.constraint_name
+  `;
   const governanceIndexes = await sql`
     select tablename, indexname
     from pg_indexes
@@ -103,6 +119,10 @@ try {
     editorialKits: {
       indexes: editorialKitIndexes.map((row) => row.indexname),
       foreignKeys: editorialKitForeignKeys,
+    },
+    editorialQueue: {
+      indexes: editorialQueueIndexes.map((row) => row.indexname),
+      foreignKeys: editorialQueueForeignKeys,
     },
   }, null, 2));
 } finally {

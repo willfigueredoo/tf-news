@@ -484,14 +484,14 @@ test("migration da Biblioteca é somente aditiva", async () => {
 
 test("endpoint bloqueia geração paga antes de a Biblioteca existir", async () => {
   const route = await readFile(new URL("../app/api/editorial-kits/route.ts", import.meta.url), "utf8");
-  assert.ok(route.indexOf("to_regclass('public.editorial_kits')") < route.indexOf("createEditorialKit(db"));
+  assert.ok(route.indexOf("to_regclass('public.editorial_kits')") < route.indexOf("generateEditorialKitForNews(db"));
+  assert.match(route, /EditorialWorkflowConflictError/);
   assert.match(route, /schema_pending/);
   assert.match(route, /input\.action === "save"/);
   assert.match(route, /UPDATE editorial_kits SET title = \?, payload = \?, updated_at = \? WHERE id = \?/);
   assert.match(route, /validation_failed/);
   assert.match(route, /ai_invalid_argument/);
   assert.match(route, /diagnóstico técnico completo foi registrado/);
-  assert.match(route, /invalid_editorial_input/);
   assert.doesNotMatch(route, /editorial_policy_failed|official_confirmation_required|pending_confirmation/);
 });
 

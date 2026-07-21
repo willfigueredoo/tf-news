@@ -1,12 +1,10 @@
 import { getRuntimeDb, rowsOf } from "../../../db/runtime";
 import { ZodError } from "zod";
-import { getAiConfig } from "../../../lib/runtime-config";
 import { editorialKitDeleteSchema, editorialKitRequestSchema, editorialKitUpdateSchema } from "../../../lib/operational-schemas";
-import { buildEditorialIntelligence } from "../../../lib/editorial-intelligence";
-import { createEditorialKit, enforcePermanentEditorialPolicy, normalizeEditorialKitPayload } from "../../../lib/editorial-kit";
+import { enforcePermanentEditorialPolicy, normalizeEditorialKitPayload } from "../../../lib/editorial-kit";
 import { deleteEditorialKit, isEditorialDeleteAuthorized } from "../../../lib/editorial-kit-delete";
 import { AiProviderRequestError } from "../../../lib/ai";
-import { loadIntelligenceNews } from "../intelligence/route";
+import { EditorialWorkflowConflictError, generateEditorialKitForNews } from "../../../lib/editorial-workflow";
 
 type KitRow = { id: number; news_item_id: number; title: string; primary_icp: string; editorial_score: number; provider: string; model: string; payload: string; status: string; archived_at: string | null; created_at: string; updated_at: string };
 
@@ -22,18 +20,10 @@ export async function POST(request: Request) {
   try {
     const input = editorialKitRequestSchema.parse(await request.json());
     const db = await getRuntimeDb();
-    const schema = await db.prepare("SELECT to_regclass('public.editorial_kits') AS editorial_kits").first<{ editorial_kits: string | null }>();
-    if (!schema?.editorial_kits) return Response.json({ error: "A migration aditiva da Biblioteca Editorial ainda não foi aplicada.", code: "schema_pending" }, { status: 503 });
-    const news = await loadIntelligenceNews(db, input.newsId);
-    if (!news.length) return Response.json({ error: "Notícia não encontrada." }, { status: 404 });
-    const decision = buildEditorialIntelligence(news).newsOfTheDay;
-    if (!decision) return Response.json({ error: "A notícia não está disponível para decisão editorial." }, { status: 409 });
-    if (!decision.produceContent) {
-      return Response.json({ error: "A notícia não possui conteúdo e fonte válidos para gerar um Kit Editorial.", code: "invalid_editorial_input" }, { status: 422 });
-    }
-    const config = getAiConfig();
-    const kit = await createEditorialKit(db, config, decision);
-    return Response.json({ kit }, { status: 201 });
+    const schema = await db.prepare("SELECT to_regclass('public.editorial_kits') AS editorial_kits, to_regclass('public.editorial_queue') AS editorial_queue").first<{ editorial_kits: string | null; editorial_queue: string | null }>();
+    if (!schema?.editorial_kits || !schema.editorial_queue) return Response.json({ error: "A migration aditiva do fluxo editorial ainda não foi aplicada.", code: "schema_pending" }, { status: 503 });
+    const generated = await generateEditorialKitForNews(db, input.newsId, { origin: "library_api" });
+    return Response.json(generated, { status: 201 });
   } catch (error) { return tableAwareError(error, 400); }
 }
 
@@ -83,6 +73,9 @@ function toClientKit(row: KitRow) {
 }
 
 function tableAwareError(error: unknown, fallbackStatus = 500) {
+  if (error instanceof EditorialWorkflowConflictError) {
+    return Response.json({ error: error.message, code: error.conflict.code, conflict: error.conflict }, { status: 409 });
+  }
   if (error instanceof ZodError) return Response.json({ error: "Revise os campos do Kit. Há conteúdo obrigatório ausente ou fora dos limites editoriais.", code: "validation_failed" }, { status: 400 });
   if (error instanceof AiProviderRequestError) {
     const invalidArgument = error.httpStatus === 400 || error.providerStatus === "INVALID_ARGUMENT";
@@ -95,7 +88,7 @@ function tableAwareError(error: unknown, fallbackStatus = 500) {
     }, { status: invalidArgument ? 502 : error.httpStatus >= 500 ? 503 : fallbackStatus });
   }
   const message = error instanceof Error ? error.message : "Falha na Biblioteca Editorial.";
-  const schemaPending = /editorial_kits|does not exist|undefined_table/i.test(message);
+  const schemaPending = /editorial_kits|editorial_queue|does not exist|undefined_table/i.test(message);
   const aiTimeout = /Timeout interno da IA/i.test(message);
   return Response.json({
     error: schemaPending
