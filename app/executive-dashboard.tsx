@@ -7,15 +7,12 @@ type ExecutiveDecision = {
   id: number;
   title: string;
   excerpt: string;
-  content: string;
   sourceName: string;
   originalUrl: string;
   publishedAt: string;
   primaryIcp: string;
-  secondaryIcps: string[];
-  topics: string[];
   region: string;
-  logisticsImpact: "low" | "medium" | "high";
+  readingTimeMinutes: number;
   finalScore: number;
   decisionReason: string;
   opportunity: string;
@@ -34,13 +31,14 @@ type ExecutiveDecision = {
     };
   };
 };
+type ExecutiveOpportunity = Pick<ExecutiveDecision, "id" | "title" | "sourceName" | "primaryIcp" | "finalScore" | "opportunity">;
 type ExecutiveSummary = {
   calculatedAt: string;
   scope: { icp: string; filtered: boolean };
   periods: { analyzed: string; relevant: string; highPriority: string; dominance: string; trend: string; newsOfTheDay: string };
   kpis: { analyzed: number; relevant: number; highPriority: number; dominantIcp: Dominance; dominantTopic: Dominance; recurringSource: Dominance };
   newsOfTheDay: ExecutiveDecision | null;
-  topFive: ExecutiveDecision[];
+  topFive: ExecutiveOpportunity[];
   decisionMetadata: { deterministic: boolean; calculatedAt: string; universeConsidered: number; temporalWindow: string; scopeIcp: string; excludedStatuses: string[]; tieBreakApplied: string };
   lastKit: { id: number; title: string; status: string; createdAt: string; updatedAt: string; archivedAt: string | null; label: string } | null;
 };
@@ -104,7 +102,7 @@ export function ExecutiveDashboard({ globalIcp, onMonitor, onLibrary, notify }: 
 
     {story ? <section className="card day-story">
       <div className="day-story-main">
-        <div className="story-kicker"><span>{story.displayLabel ?? "Notícia do Dia"}</span><span>{formatDate(story.publishedAt)}</span><span>{readingTime(story.content || story.excerpt)} min de leitura</span></div>
+        <div className="story-kicker"><span>{story.displayLabel ?? "Notícia do Dia"}</span><span>{formatDate(story.publishedAt)}</span><span>{story.readingTimeMinutes} min de leitura</span></div>
         <h2>{story.title}</h2>
         <p className="story-deck">{story.excerpt}</p>
         <div className="story-context-grid">
@@ -175,5 +173,4 @@ function ScoreBreakdown({ decision }: { decision: ExecutiveDecision }) {
 function formatDate(value: string) {
   return new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(new Date(value));
 }
-function readingTime(value: string) { return Math.max(1, Math.round(value.trim().split(/\s+/).filter(Boolean).length / 210)); }
 function statusLabel(value: string) { return value === "draft" ? "Rascunho" : value === "archived" ? "Arquivado" : value; }

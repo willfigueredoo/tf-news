@@ -70,10 +70,31 @@ export async function GET(request: Request) {
         recurringSource,
       },
       newsOfTheDay: winner ? {
-        ...winner,
+        id: winner.id,
+        title: winner.title,
+        excerpt: winner.excerpt,
+        sourceName: winner.sourceName,
+        originalUrl: winner.originalUrl,
+        publishedAt: winner.publishedAt,
+        primaryIcp: winner.primaryIcp,
+        region: winner.region,
+        finalScore: winner.finalScore,
+        decisionReason: winner.decisionReason,
+        opportunity: winner.opportunity,
+        commercialImpact: winner.commercialImpact,
+        logisticsReason: winner.logisticsReason,
+        ranking: winner.ranking,
+        readingTimeMinutes: readingTime(winner.content || winner.excerpt),
         displayLabel: ageHours !== null && ageHours > 24 ? "Melhor sinal recente" : "Notícia do Dia",
       } : null,
-      topFive: ranked.slice(0, 5),
+      topFive: ranked.slice(0, 5).map((item) => ({
+        id: item.id,
+        title: item.title,
+        sourceName: item.sourceName,
+        primaryIcp: item.primaryIcp,
+        finalScore: item.finalScore,
+        opportunity: item.opportunity,
+      })),
       decisionMetadata: {
         deterministic: true,
         calculatedAt: calculatedAt.toISOString(),
@@ -230,4 +251,8 @@ function parseArray(value: string) {
   } catch {
     return [];
   }
+}
+
+function readingTime(value: string) {
+  return Math.max(1, Math.round(value.trim().split(/\s+/).filter(Boolean).length / 210));
 }

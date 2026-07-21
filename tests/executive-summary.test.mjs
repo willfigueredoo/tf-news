@@ -75,6 +75,8 @@ test("endpoint executivo agrega no PostgreSQL, aplica ICP e nÃ£o permite cache
   assert.match(route, /Cache-Control.*private, no-store/);
   assert.match(route, /universeConsidered/);
   assert.match(route, /tieBreakApplied/);
+  assert.match(route, /topFive: ranked\.slice\(0, 5\)\.map/);
+  assert.match(route, /readingTimeMinutes/);
   assert.doesNotMatch(route, /SELECT n\.\* FROM news_items/);
 });
 
