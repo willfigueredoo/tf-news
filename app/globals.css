@@ -454,6 +454,9 @@ textarea.field { min-height: 96px; resize: vertical; line-height: 1.55; }
 .status.health-paused, .status.health-archived { background: var(--surface-soft); color: var(--muted); }
 .editorial-hero { align-items: center; min-height: 225px; }
 .editorial-hero h1 { max-width: 980px; font-size: clamp(38px, 4.7vw, 68px); }
+.hero-news-label { margin: 15px 0 7px; color: var(--accent); font-size: 10px; font-weight: 750; letter-spacing: .12em; text-transform: uppercase; }
+.hero-scope { margin-top: 12px; color: var(--muted); font-size: 11px; }
+.hero-scope span { margin: 0 5px; color: var(--muted-2); }
 .executive-strip { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 1px; overflow: hidden; margin-bottom: 16px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--border); }
 .executive-strip > div { min-height: 92px; display: flex; flex-direction: column; justify-content: space-between; gap: 10px; padding: 17px; background: var(--surface); }
 .executive-strip strong { overflow: hidden; color: var(--text-strong); font-size: 21px; font-weight: 720; letter-spacing: -.04em; text-overflow: ellipsis; white-space: nowrap; }

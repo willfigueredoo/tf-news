@@ -87,7 +87,9 @@ test("Painel nÃ£o depende de focusNewsId nem oferece geraÃ§Ã£o", async () 
   assert.doesNotMatch(dashboard, /focusNewsId|generateKit|Gerar Kit|Gerar ConteÃºdo|POST.*editorial-kits/s);
   assert.match(dashboard, /api\/executive-summary\?icp=/);
   assert.doesNotMatch(dashboard, /sem interfer/i);
-  assert.ok(dashboard.indexOf('className="card day-story"') < dashboard.indexOf('className="executive-strip"'));
+  assert.ok(dashboard.indexOf('className="executive-strip"') < dashboard.indexOf('className="card day-story"'));
+  assert.match(dashboard, /<h1>{story\?\.title/);
+  assert.doesNotMatch(dashboard, /story\.displayLabel/);
   assert.match(dashboard, /Último Kit gerado no sistema/);
 });
 

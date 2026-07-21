@@ -87,16 +87,24 @@ export function ExecutiveDashboard({ globalIcp, onMonitor, onLibrary, notify }: 
     <section className="dashboard-hero editorial-hero">
       <div>
         <div className="eyebrow"><span className="signal-pulse" /> Inteligência editorial calculada</div>
-        <h1>Notícia do Dia</h1>
-        <p className="subtitle">Escopo: {summary.scope.icp} · cálculo atualizado {formatDate(summary.calculatedAt)}.</p>
+        <div className="hero-news-label">Notícia do Dia</div>
+        <h1>{story?.title ?? "Nenhuma oportunidade editorial no momento"}</h1>
+        <p className="subtitle">Selecionada automaticamente com base em impacto, relevância, autoridade da fonte e tendência.</p>
+        <p className="hero-scope">Escopo: {summary.scope.icp} <span aria-hidden="true">•</span> Atualizado às {formatTime(summary.calculatedAt)}</p>
       </div>
       <button className="secondary" onClick={onMonitor}>Abrir Monitoramento</button>
     </section>
 
+    <div className="executive-strip">
+      {metrics.map(([label, value, period]) => <div key={label}><strong>{value}</strong><span>{label}</span><small>{period}</small></div>)}
+      <DominanceMetric label="ICP dominante" value={summary.kpis.dominantIcp} period={summary.periods.dominance} />
+      <DominanceMetric label="Tema dominante" value={summary.kpis.dominantTopic} period={summary.periods.dominance} />
+      <DominanceMetric label="Fonte mais recorrente" value={summary.kpis.recurringSource} period={summary.periods.dominance} />
+    </div>
+
     {story ? <section className="card day-story">
       <div className="day-story-main">
-        <div className="story-kicker"><span>{story.displayLabel ?? "Notícia do Dia"}</span><span>{formatDate(story.publishedAt)}</span><span>{story.readingTimeMinutes} min de leitura</span></div>
-        <h2>{story.title}</h2>
+        <div className="story-kicker"><span>{formatDay(story.publishedAt)}</span><span>{formatTime(story.publishedAt)}</span><span>{story.readingTimeMinutes} min de leitura</span></div>
         <p className="story-deck">{story.excerpt}</p>
         <div className="story-context-grid">
           <div><small>Por que foi escolhida</small><p>{story.decisionReason}</p></div>
@@ -116,13 +124,6 @@ export function ExecutiveDashboard({ globalIcp, onMonitor, onLibrary, notify }: 
       </div>
       <ScoreBreakdown decision={story} />
     </section> : <div className="card empty"><strong>Nenhuma Notícia do Dia no escopo selecionado</strong>Não há candidata válida nas últimas 72 horas.</div>}
-
-    <div className="executive-strip">
-      {metrics.map(([label, value, period]) => <div key={label}><strong>{value}</strong><span>{label}</span><small>{period}</small></div>)}
-      <DominanceMetric label="ICP dominante" value={summary.kpis.dominantIcp} period={summary.periods.dominance} />
-      <DominanceMetric label="Tema dominante" value={summary.kpis.dominantTopic} period={summary.periods.dominance} />
-      <DominanceMetric label="Fonte mais recorrente" value={summary.kpis.recurringSource} period={summary.periods.dominance} />
-    </div>
 
     <div className="executive-secondary-grid">
       <section className="editorial-section">
@@ -172,5 +173,11 @@ function ScoreBreakdown({ decision }: { decision: ExecutiveDecision }) {
 
 function formatDate(value: string) {
   return new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(new Date(value));
+}
+function formatDay(value: string) {
+  return new Intl.DateTimeFormat("pt-BR", { dateStyle: "short" }).format(new Date(value));
+}
+function formatTime(value: string) {
+  return new Intl.DateTimeFormat("pt-BR", { hour: "2-digit", minute: "2-digit" }).format(new Date(value));
 }
 function statusLabel(value: string) { return value === "draft" ? "Rascunho" : value === "archived" ? "Arquivado" : value; }
