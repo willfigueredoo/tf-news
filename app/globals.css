@@ -458,6 +458,7 @@ textarea.field { min-height: 96px; resize: vertical; line-height: 1.55; }
 .executive-strip > div { min-height: 92px; display: flex; flex-direction: column; justify-content: space-between; gap: 10px; padding: 17px; background: var(--surface); }
 .executive-strip strong { overflow: hidden; color: var(--text-strong); font-size: 21px; font-weight: 720; letter-spacing: -.04em; text-overflow: ellipsis; white-space: nowrap; }
 .executive-strip span { color: var(--muted); font-size: 8px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.executive-strip small { color: var(--muted-2); font-size: 8px; line-height: 1.35; }
 .day-story { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(290px, .7fr); gap: 30px; padding: 30px; }
 .day-story-main h2 { max-width: 900px; margin: 0; color: var(--text-strong); font-size: clamp(25px, 3vw, 41px); line-height: 1.08; letter-spacing: -.04em; }
 .day-story-main > p { max-width: 900px; color: var(--muted); font-size: 13px; line-height: 1.65; }
@@ -498,6 +499,11 @@ textarea.field { min-height: 96px; resize: vertical; line-height: 1.55; }
 .opportunity-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-hover); }
 .opportunity-card .rank { color: var(--muted-2); font-size: 18px; font-weight: 760; }
 .opportunity-card p { margin: 7px 0 0; color: var(--muted); font-size: 9px; line-height: 1.5; }
+.executive-secondary-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(250px, 320px); gap: 20px; align-items: start; }
+.last-kit-card { display: grid; gap: 12px; margin-top: 28px; padding: 22px; }
+.last-kit-card h2 { margin: 0; color: var(--text-strong); font-size: 17px; letter-spacing: -.025em; }
+.last-kit-card > strong { color: var(--text); font-size: 12px; line-height: 1.5; }
+.last-kit-card p { margin: 0; color: var(--muted); font-size: 9px; line-height: 1.5; }
 .radar-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .radar-card { position: relative; min-height: 180px; padding: 22px; }
 .radar-card h2, .insight-card h2 { max-width: 85%; margin: 0; color: var(--text); font-size: 14px; line-height: 1.35; }
@@ -652,6 +658,8 @@ textarea.field { min-height: 96px; resize: vertical; line-height: 1.55; }
   .nav-button::after { content: attr(data-tooltip); position: absolute; left: calc(100% + 12px); top: 50%; z-index: 50; width: max-content; max-width: 190px; padding: 7px 10px; border: 1px solid var(--border-inverse); border-radius: var(--radius-sm); background: var(--surface-tooltip); color: var(--text-tooltip); box-shadow: var(--shadow-floating); font-size: 10px; font-weight: 620; line-height: 1.2; letter-spacing: 0; pointer-events: none; opacity: 0; transform: translate(4px, -50%) scale(.98); transition: opacity .16s ease, transform .16s ease; }
   .nav-button:hover::after, .nav-button:focus-visible::after { opacity: 1; transform: translate(0, -50%) scale(1); }
   .day-story { grid-template-columns: 1fr; }
+  .executive-secondary-grid { grid-template-columns: 1fr; }
+  .last-kit-card { margin-top: 0; }
   .story-context-grid { grid-template-columns: 1fr 1fr; }
   .story-context-grid > div:first-child { grid-column: 1 / -1; }
   .library-toolbar { grid-template-columns: 1fr auto; }

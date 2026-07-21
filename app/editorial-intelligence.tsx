@@ -87,98 +87,61 @@ type KitPayload = {
   whatsapp: { text: string };
 };
 
-type GenerationState = { newsId: number; step: number };
 type LibraryFilter = "all" | "favorites" | "pinned" | "active" | "archived";
 type LibrarySort = "updated" | "score" | "title";
 type LibraryView = "cards" | "list";
 
 type EditorialIntelligenceProps = {
-  mode: "overview" | "library" | "radar" | "insights";
-  aiConfigured: boolean;
+  mode: "library" | "radar" | "insights";
   wordpressBaseUrl: string | null;
-  focusNewsId?: number | null;
+  initialKitId?: number | null;
   onMonitor: () => void;
   notify: (message: string) => void;
 };
 
-export function EditorialIntelligence({ mode, aiConfigured, wordpressBaseUrl, focusNewsId, onMonitor, notify }: EditorialIntelligenceProps) {
+export function EditorialIntelligence({ mode, wordpressBaseUrl, initialKitId, onMonitor, notify }: EditorialIntelligenceProps) {
   const [intelligence, setIntelligence] = useState<Intelligence | null>(null);
   const [kits, setKits] = useState<Kit[]>([]);
   const [selectedKit, setSelectedKit] = useState<Kit | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Kit | null>(null);
   const [deletePending, setDeletePending] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [generating, setGenerating] = useState<number | null>(null);
-  const [generation, setGeneration] = useState<GenerationState | null>(null);
   const [libraryPending, setLibraryPending] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [intelligenceResponse, kitsResponse] = await Promise.all([fetch("/api/intelligence"), fetch("/api/editorial-kits")]);
+      const [intelligenceResponse, kitsResponse] = await Promise.all([
+        fetch("/api/intelligence"),
+        mode === "library" ? fetch("/api/editorial-kits") : Promise.resolve(null),
+      ]);
       const intelligenceData = await intelligenceResponse.json() as Intelligence & { error?: string };
       if (!intelligenceResponse.ok) throw new Error(intelligenceData.error ?? "Falha ao carregar a decisão editorial.");
       setIntelligence(intelligenceData);
-      const kitsData = await kitsResponse.json() as { kits?: Kit[]; code?: string; error?: string };
-      if (kitsResponse.ok) {
-        setKits(kitsData.kits ?? []);
-        setLibraryPending(false);
-      } else if (kitsData.code === "schema_pending") {
-        setLibraryPending(true);
+      if (kitsResponse) {
+        const kitsData = await kitsResponse.json() as { kits?: Kit[]; code?: string; error?: string };
+        if (kitsResponse.ok) {
+          const loadedKits = kitsData.kits ?? [];
+          setKits(loadedKits);
+          if (initialKitId) {
+            setSelectedKit(loadedKits.find((kit) => kit.id === initialKitId) ?? null);
+          }
+          setLibraryPending(false);
+        } else if (kitsData.code === "schema_pending") {
+          setLibraryPending(true);
+        }
       }
     } catch (error) {
       notify(error instanceof Error ? error.message : "Falha ao carregar a inteligência editorial.");
     } finally {
       setLoading(false);
     }
-  }, [notify]);
+  }, [initialKitId, mode, notify]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => { void load(); }, 0);
     return () => window.clearTimeout(timer);
   }, [load]);
-
-  const featured = useMemo(
-    () => intelligence?.all.find((item) => item.id === focusNewsId) ?? intelligence?.newsOfTheDay ?? null,
-    [focusNewsId, intelligence],
-  );
-
-  async function generateKit(newsId: number) {
-    if (!aiConfigured) return notify("Configure o Gemini para gerar o Kit Editorial.");
-    if (libraryPending) return notify("A Biblioteca Editorial precisa estar disponível para salvar o Kit.");
-    setGenerating(newsId);
-    setGeneration({ newsId, step: 0 });
-    const timers = [
-      window.setTimeout(() => setGeneration((current) => current ? { ...current, step: 1 } : current), 450),
-      window.setTimeout(() => setGeneration((current) => current ? { ...current, step: 2 } : current), 1_700),
-      window.setTimeout(() => setGeneration((current) => current ? { ...current, step: 3 } : current), 3_400),
-    ];
-    let succeeded = false;
-    try {
-      const response = await fetch("/api/editorial-kits", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ newsId }),
-      });
-      const data = await response.json() as { kit?: Kit; error?: string };
-      if (!response.ok || !data.kit) throw new Error(data.error ?? "Não foi possível gerar o Kit Editorial.");
-      timers.forEach((timer) => window.clearTimeout(timer));
-      setGeneration({ newsId, step: 4 });
-      setKits((current) => [data.kit as Kit, ...current]);
-      setSelectedKit(data.kit);
-      await pause(180);
-      setGeneration({ newsId, step: 5 });
-      succeeded = true;
-      notify("Kit Editorial gerado e salvo na Biblioteca.");
-    } catch (error) {
-      notify(error instanceof Error ? error.message : "Falha ao gerar o Kit Editorial.");
-    } finally {
-      timers.forEach((timer) => window.clearTimeout(timer));
-      setGenerating(null);
-      if (succeeded) window.setTimeout(() => setGeneration(null), 700);
-      else setGeneration(null);
-    }
-  }
 
   async function updateKit(id: number, action: "archive" | "restore" | "duplicate") {
     const response = await fetch("/api/editorial-kits", {
@@ -267,115 +230,7 @@ export function EditorialIntelligence({ mode, aiConfigured, wordpressBaseUrl, fo
 
   if (mode === "library") return <><Library kits={kits} pending={libraryPending} onOpen={setSelectedKit} onUpdate={updateKit} onDeleteRequest={setDeleteTarget} selectedDrawer={drawer} />{deleteDialog}</>;
   if (mode === "radar") return <><Radar intelligence={intelligence} />{deleteDialog}</>;
-  if (mode === "insights") return <><Insights intelligence={intelligence} />{deleteDialog}</>;
-  return <><ExecutiveOverview
-    intelligence={intelligence}
-    featured={featured}
-    aiConfigured={aiConfigured}
-    libraryPending={libraryPending}
-    generating={generating}
-    generation={generation}
-    generateKit={generateKit}
-    onMonitor={onMonitor}
-    drawer={drawer}
-  />{deleteDialog}</>;
-}
-
-function ExecutiveOverview({ intelligence, featured, aiConfigured, libraryPending, generating, generation, generateKit, onMonitor, drawer }: {
-  intelligence: Intelligence;
-  featured: Decision | null;
-  aiConfigured: boolean;
-  libraryPending: boolean;
-  generating: number | null;
-  generation: GenerationState | null;
-  generateKit: (id: number) => void;
-  onMonitor: () => void;
-  drawer: React.ReactNode;
-}) {
-  const metrics = [
-    ["Notícias analisadas", intelligence.summary.analyzed],
-    ["Relevantes", intelligence.summary.relevant],
-    ["Alta prioridade", intelligence.summary.highPriority],
-    ["Descartáveis", intelligence.summary.discarded],
-  ];
-  return <>
-    <section className="dashboard-hero editorial-hero">
-      <div>
-        <div className="eyebrow"><span className="signal-pulse" /> Editor-chefe digital</div>
-        <h1>Se você produzir apenas um conteúdo hoje, produza este.</h1>
-        <p className="subtitle">Decisão editorial explicável, baseada nos sinais reais monitorados — sem consumo automático de IA.</p>
-      </div>
-      <button className="secondary" onClick={onMonitor}>Ver todas as notícias</button>
-    </section>
-    <div className="executive-strip">
-      {metrics.map(([label, value]) => <div key={String(label)}><strong>{value}</strong><span>{label}</span></div>)}
-      <div><strong>{intelligence.summary.mostImpactedIcp ?? "—"}</strong><span>ICP mais impactado</span></div>
-      <div><strong>{intelligence.summary.dominantTopic ?? "—"}</strong><span>Tema dominante</span></div>
-    </div>
-    {featured && <section className="card day-story">
-      <div className="day-story-main">
-        <div className="story-kicker"><span>Notícia do dia</span><span>{formatDate(featured.publishedAt)}</span><span>{readingTime(featured.content || featured.excerpt)} min de leitura</span></div>
-        <h2>{featured.title}</h2>
-        <p className="story-deck">{featured.excerpt}</p>
-        <div className="story-context-grid">
-          <div><small>Por que foi escolhida</small><p>{featured.decisionReason}</p></div>
-          <div><small>Empresas potencialmente afetadas</small><div className="story-pills">{affectedProfiles(featured).map((profile) => <span key={profile}>{profile}</span>)}</div></div>
-          <div><small>Segmentos relacionados</small><div className="story-pills">{relatedSegments(featured).map((segment) => <span key={segment}>{segment}</span>)}</div></div>
-        </div>
-        <div className="decision-grid">
-          <div><small>Oportunidade editorial</small><p>{featured.opportunity}</p></div>
-          <div><small>Impacto comercial</small><p>{featured.commercialImpact}</p></div>
-          <div><small>Impacto logístico</small><p>{featured.logisticsReason}</p></div>
-          <div><small>Fonte</small><p>{featured.sourceName} · {featured.region || "Abrangência nacional"}</p></div>
-        </div>
-        <div className="inline-actions story-actions">
-          <button className={`primary ${generating === featured.id ? "is-loading" : ""}`} disabled={!aiConfigured || libraryPending || generating !== null || !featured.produceContent} onClick={() => generateKit(featured.id)}>{generating === featured.id ? "Criando seu Kit…" : "CRIAR CONTEÚDO"}</button>
-          <a className="secondary" href={featured.originalUrl} target="_blank" rel="noopener noreferrer">Abrir fonte original ↗</a>
-        </div>
-        {generation?.newsId === featured.id && <GenerationProgress step={generation.step} />}
-        {!aiConfigured && <div className="notice kit-notice">A geração estará disponível assim que a inteligência editorial estiver configurada.</div>}
-        {libraryPending && <div className="notice kit-notice">A Biblioteca precisa estar disponível para receber o Kit Editorial.</div>}
-      </div>
-      <ScoreBreakdown decision={featured} />
-    </section>}
-    <section className="editorial-section">
-      <div className="panel-title"><h2>Top 5 oportunidades editoriais</h2><small>Ranking recalculado com dados persistidos</small></div>
-      <div className="opportunity-list">{intelligence.topFive.map((item, index) => <article className="card opportunity-card" key={item.id}>
-        <span className="rank">0{index + 1}</span>
-        <div><div className="content-title">{item.title}</div><div className="content-meta">{item.sourceName} · {item.primaryIcp}</div><p>{item.opportunity}</p></div>
-        <span className={`score ${item.editorialScore >= 80 ? "priority" : ""}`}>{item.editorialScore}</span>
-        <button className="ghost" disabled={!aiConfigured || libraryPending || generating !== null || !item.produceContent} onClick={() => generateKit(item.id)}>Gerar kit</button>
-      </article>)}</div>
-    </section>
-    {drawer}
-  </>;
-}
-
-function GenerationProgress({ step }: { step: number }) {
-  const steps = ["Selecionando notícia", "Gerando Blog", "Gerando WhatsApp", "Validando conteúdo", "Salvando Biblioteca", "Finalizado"];
-  return <div className={`generation-progress ${step === steps.length - 1 ? "finished" : ""}`} role="status" aria-live="polite">
-    <div className="generation-head"><strong>{step === steps.length - 1 ? "Kit Editorial pronto" : "Criando seu Kit Editorial"}</strong><span>{Math.min(100, Math.round(((step + 1) / steps.length) * 100))}%</span></div>
-    <div className="generation-track"><i style={{ width: `${Math.min(100, ((step + 1) / steps.length) * 100)}%` }} /></div>
-    <div className="generation-steps">{steps.map((label, index) => <span className={index < step || step === steps.length - 1 ? "complete" : index === step ? "current" : ""} key={label}><i>{index < step || step === steps.length - 1 ? "✓" : index + 1}</i>{label}</span>)}</div>
-  </div>;
-}
-
-function ScoreBreakdown({ decision }: { decision: Decision }) {
-  const reasons = [
-    ["Impacto logístico", decision.scoreBreakdown.logistics],
-    ["Relevância econômica", decision.scoreBreakdown.economicImportance],
-    ["ICP atendido", decision.scoreBreakdown.icpFit],
-    ["Autoridade da fonte", decision.scoreBreakdown.sourceAuthority],
-    ["Confiabilidade das fontes", decision.scoreBreakdown.sourceReliability],
-  ] as Array<[string, number]>;
-  return <aside className="score-breakdown">
-    <div className="score-caption">Score editorial</div>
-    <div className="score-ring"><strong>{decision.editorialScore}</strong><span>/ 100</span></div>
-    <h3>Por que esta notícia foi escolhida?</h3>
-    <p className="score-summary">Quatro sinais concentram a força editorial desta pauta.</p>
-    {reasons.map(([label, value]) => <div className="score-line" key={label}><span>{label}</span><div><i style={{ width: `${value}%` }} /></div><strong>{value}</strong></div>)}
-    <div className="source-confidence" aria-label="Confiabilidade das fontes"><strong>Confiabilidade das fontes</strong>{decision.sourceGovernance.signals.filter((signal) => !/recomendada/i.test(signal)).map((signal) => <span key={signal}>✓ {signal}</span>)}</div>
-  </aside>;
+  return <><Insights intelligence={intelligence} />{deleteDialog}</>;
 }
 
 function Library({ kits, pending, onOpen, onUpdate, onDeleteRequest, selectedDrawer }: {
@@ -617,21 +472,6 @@ function EditorField({ label, value, onChange, maxLength, multiline = false, edi
   return <label className="editor-field"><span><strong>{label}</strong>{maxLength && <small>{value.length}/{maxLength}</small>}</span>{multiline ? <textarea className={`editor-textarea ${editor ? "html-editor" : ""}`} value={value} maxLength={maxLength} onChange={(event) => onChange(event.target.value)} /> : <input value={value} maxLength={maxLength} onChange={(event) => onChange(event.target.value)} />}</label>;
 }
 
-function affectedProfiles(decision: Decision) {
-  const profiles = decision.primaryIcp === "Agronegócio"
-    ? ["Produtores e cooperativas", "Tradings e armazenadores", "Transportadoras e terminais"]
-    : [`Empresas de ${decision.primaryIcp}`, "Embarcadores e distribuidores", "Operadores logísticos"];
-  return profiles.slice(0, 3);
-}
-
-function relatedSegments(decision: Decision) {
-  return [...new Set([decision.primaryIcp, ...decision.secondaryIcps, ...decision.topics])].filter(Boolean).slice(0, 5);
-}
-
-function readingTime(value: string) {
-  return Math.max(1, Math.ceil(value.trim().split(/\s+/).filter(Boolean).length / 220));
-}
-
 function formatDate(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "data indisponível";
@@ -648,10 +488,6 @@ function numberArray(value: unknown) {
 
 function clonePayload(payload: KitPayload): KitPayload {
   return JSON.parse(JSON.stringify(payload)) as KitPayload;
-}
-
-function pause(ms: number) {
-  return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
 async function writeClipboard(value: string) {

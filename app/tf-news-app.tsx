@@ -2,6 +2,7 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { ICP_CATALOG } from "../lib/editorial";
 import { EditorialIntelligence } from "./editorial-intelligence";
+import { ExecutiveDashboard } from "./executive-dashboard";
 import { MonitoringWorkspace } from "./monitoring-workspace";
 import { OperationsHistory } from "./operations-history";
 import { SourceManager } from "./source-manager";
@@ -56,7 +57,7 @@ export function TFNewsApp({ userName, userEmail, initialUpdatedAt }: { userName:
   const [lastUpdated, setLastUpdated] = useState(initialUpdatedAt);
   const [objective, setObjective] = useState("Analisar o acontecimento e explicar impactos para operação, distribuição e transporte.");
   const [keyword, setKeyword] = useState("logística B2B");
-  const [focusNewsId, setFocusNewsId] = useState<number | null>(null);
+  const [libraryKitId, setLibraryKitId] = useState<number | null>(null);
 
   const notify = useCallback((message: string) => { setToast(message); window.setTimeout(() => setToast(null), 5000); }, []);
   const refreshAll = useCallback(async () => {
@@ -90,7 +91,11 @@ export function TFNewsApp({ userName, userEmail, initialUpdatedAt }: { userName:
   function chooseView(next: View) { setView(next); window.scrollTo({ top: 0, behavior: "smooth" }); }
   function toggleTheme() { const root = document.documentElement; const next = root.dataset.theme === "dark" ? "light" : "dark"; root.dataset.theme = next; root.style.colorScheme = next; window.localStorage.setItem("tf-news-theme", next); }
   function toggleNews(id: number) { setSelected((current) => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; }); }
-  function startContent() { if (!liveSelected.length) { notify("Selecione ao menos uma notícia real no monitoramento."); chooseView("Monitoramento"); return; } setFocusNewsId(liveSelected[0]); chooseView("Visão Executiva"); notify(liveSelected.length > 1 ? "A primeira notícia selecionada foi aberta. O Kit Editorial trabalha uma pauta por vez." : "Notícia aberta na decisão editorial."); }
+  function startContent() {
+    if (!liveSelected.length) return notify("Selecione ao menos uma notícia real no Monitoramento.");
+    notify("A geração direta com rastreabilidade pela Fila Editorial será habilitada na Fase 2.");
+  }
+  function openLibraryKit(kitId: number) { setLibraryKitId(kitId); chooseView("Biblioteca"); }
 
   // Kept temporarily for the legacy monitor while the operational workspace is stabilized.
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -157,11 +162,11 @@ export function TFNewsApp({ userName, userEmail, initialUpdatedAt }: { userName:
     <aside className="sidebar"><button className="sidebar-brand" type="button" onClick={() => chooseView("Visão Executiva")} aria-label="Ir para Painel Executivo"><span className="sidebar-brand-name"><strong>TF</strong><em>NEWS</em></span><small>Editorial Intelligence</small></button><nav className="nav" aria-label="Navegação principal">{VIEWS.map((item) => <button key={item.name} className={`nav-button ${view === item.name ? "active" : ""}`} onClick={() => chooseView(item.name)} aria-label={VIEW_TITLES[item.name]} data-tooltip={VIEW_TITLES[item.name]}><span className="nav-icon" aria-hidden="true">{item.icon}</span><span className="nav-text">{item.name}</span></button>)}</nav><div className="sidebar-foot"><div className="live-status"><span className="live-dot" /> Monitoramento operacional</div><div className="source-meta" style={{ marginTop: 8 }}>{sources.length} fonte(s) cadastrada(s)</div></div></aside>
     <main className="main"><header className="topbar"><div className="header-context"><button className="header-brand" type="button" onClick={() => chooseView("Visão Executiva")} aria-label="Ir para Painel Executivo"><span className="header-brand-name"><strong>TF</strong><em>NEWS</em></span><span className="header-brand-rule" aria-hidden="true" /></button><div className="header-copy"><div className="page-name">{VIEW_TITLES[view]}</div><div className="update-time">Atualizado às {lastUpdated}</div></div></div><div className="top-actions"><select className="global-select" value={globalIcp} onChange={(event) => setGlobalIcp(event.target.value)} aria-label="Filtrar todo o sistema por ICP"><option>Todos os ICPs</option>{ICP_CATALOG.map((icp) => <option key={icp.slug}>{icp.name}</option>)}</select><button className="theme-toggle" onClick={toggleTheme} aria-label="Alternar entre modo claro e escuro" title="Alternar tema"><span className="theme-icon-light" aria-hidden="true">☼</span><span className="theme-icon-dark" aria-hidden="true">◐</span></button><div className="user-chip" title={userEmail}><div className="avatar">{initials(userName)}</div><div className="user-copy"><strong>{userName}</strong><span>Editor</span></div></div></div></header>
       <div className="content">{dataError && <div className="notice">{dataError}</div>}
-        {view === "Visão Executiva" && <EditorialIntelligence mode="overview" aiConfigured={Boolean(aiStatus?.configured)} wordpressBaseUrl={wordpressBaseUrl} focusNewsId={focusNewsId} onMonitor={() => chooseView("Monitoramento")} notify={notify} />}
+        {view === "Visão Executiva" && <ExecutiveDashboard globalIcp={globalIcp} onMonitor={() => chooseView("Monitoramento")} onLibrary={openLibraryKit} notify={notify} />}
         {view === "Monitoramento" && <MonitoringWorkspace news={filteredNews} sources={sources} selected={selected} search={search} setSearch={setSearch} toggleNews={toggleNews} toggleAll={(ids) => setSelected(new Set(ids))} startContent={startContent} refresh={refreshAll} notify={notify} busy={busy} setBusy={setBusy} aiConfigured={Boolean(aiStatus?.configured)} />}
-        {view === "Biblioteca" && <EditorialIntelligence mode="library" aiConfigured={Boolean(aiStatus?.configured)} wordpressBaseUrl={wordpressBaseUrl} onMonitor={() => chooseView("Monitoramento")} notify={notify} />}
-        {view === "Radar" && <EditorialIntelligence mode="radar" aiConfigured={Boolean(aiStatus?.configured)} wordpressBaseUrl={wordpressBaseUrl} onMonitor={() => chooseView("Monitoramento")} notify={notify} />}
-        {view === "Insights" && <EditorialIntelligence mode="insights" aiConfigured={Boolean(aiStatus?.configured)} wordpressBaseUrl={wordpressBaseUrl} onMonitor={() => chooseView("Monitoramento")} notify={notify} />}
+        {view === "Biblioteca" && <EditorialIntelligence mode="library" wordpressBaseUrl={wordpressBaseUrl} initialKitId={libraryKitId} onMonitor={() => chooseView("Monitoramento")} notify={notify} />}
+        {view === "Radar" && <EditorialIntelligence mode="radar" wordpressBaseUrl={wordpressBaseUrl} onMonitor={() => chooseView("Monitoramento")} notify={notify} />}
+        {view === "Insights" && <EditorialIntelligence mode="insights" wordpressBaseUrl={wordpressBaseUrl} onMonitor={() => chooseView("Monitoramento")} notify={notify} />}
         {view === "Criar Conteúdo" && <CreateContent selectedCount={liveSelected.length} brief={brief} article={article} setArticle={setArticle} objective={objective} setObjective={setObjective} keyword={keyword} setKeyword={setKeyword} busy={busy} aiConfigured={Boolean(aiStatus?.configured)} generateBrief={generateBrief} generateArticle={generateArticle} saveArticle={saveArticle} onChooseNews={() => chooseView("Monitoramento")} />}
         {view === "Conteúdos" && <Contents articles={articles} busy={busy} wpConfigured={wpConfigured} openArticle={(item) => { setArticle(item); chooseView("Criar Conteúdo"); }} sendWordPress={sendWordPress} />}
         {view === "Configurações" && <Settings tab={settingsTab} setTab={setSettingsTab} sources={sources} wpConfigured={wpConfigured} aiStatus={aiStatus} logs={logs} busy={busy} setBusy={setBusy} notify={notify} refresh={refreshAll} />}

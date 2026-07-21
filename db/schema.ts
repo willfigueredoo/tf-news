@@ -143,6 +143,12 @@ export const newsItems = pgTable("news_items", {
   index("news_relevance_idx").on(table.relevanceScore, table.publishedAt),
   index("news_status_idx").on(table.status, table.collectedAt),
   index("news_collection_run_idx").on(table.collectionRunId),
+  index("news_published_idx").on(table.publishedAt),
+  index("news_primary_icp_published_idx").on(table.primaryIcp, table.publishedAt),
+  index("news_source_published_idx").on(table.sourceId, table.publishedAt),
+  index("news_status_published_idx").on(table.status, table.publishedAt),
+  index("news_archived_published_idx").on(table.archivedAt, table.publishedAt),
+  index("news_updated_idx").on(table.updatedAt),
 ]);
 
 export const newsItemHistory = pgTable("news_item_history", {

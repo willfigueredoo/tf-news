@@ -3,9 +3,10 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 test("mantém a experiência principal e remove o starter", async () => {
-  const [page, app, editorial, monitoring, sourceManager, history, layout, css, packageJson, viteConfig, vercelConfig, vercelOutputScript, readyRoute] = await Promise.all([
+  const [page, app, executive, editorial, monitoring, sourceManager, history, layout, css, packageJson, viteConfig, vercelConfig, vercelOutputScript, readyRoute] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/tf-news-app.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/executive-dashboard.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/editorial-intelligence.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/monitoring-workspace.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/source-manager.tsx", import.meta.url), "utf8"),
@@ -25,13 +26,12 @@ test("mantém a experiência principal e remove o starter", async () => {
   assert.match(app, /Radar/);
   assert.match(app, /Insights/);
   assert.match(app, /EditorialIntelligence/);
-  assert.match(editorial, /Por que esta notícia foi escolhida/);
+  assert.match(executive, /Por que foi escolhida/);
+  assert.match(executive, /Universo considerado/);
+  assert.match(executive, /Último Kit gerado no sistema/);
+  assert.doesNotMatch(executive, /Gerar Kit|Gerar Conteúdo/);
   assert.match(editorial, /additional_confirmation_recommended/);
   assert.doesNotMatch(editorial, /CONFIRMAÇÃO OBRIGATÓRIA/);
-  assert.match(editorial, /Empresas potencialmente afetadas/);
-  assert.match(editorial, /Selecionando notícia/);
-  assert.match(editorial, /Gerando Blog/);
-  assert.match(editorial, /Salvando Biblioteca/);
   assert.match(editorial, /Favoritar/);
   assert.match(editorial, /Fixar/);
   assert.match(editorial, /Copiar HTML/);
