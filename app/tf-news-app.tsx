@@ -7,9 +7,10 @@ import { EditorialQueue } from "./editorial-queue";
 import { ExecutiveDashboard } from "./executive-dashboard";
 import { MonitoringWorkspace } from "./monitoring-workspace";
 import { OperationsHistory } from "./operations-history";
+import { SeoIntelligence } from "./seo-intelligence/seo-intelligence";
 import { SourceManager } from "./source-manager";
 
-type View = "Visão Executiva" | "Monitoramento" | "Fila Editorial" | "Biblioteca" | "Radar" | "Insights" | "Configurações" | "Criar Conteúdo" | "Conteúdos";
+type View = "Visão Executiva" | "Monitoramento" | "Fila Editorial" | "Biblioteca" | "Inteligência SEO" | "Radar" | "Insights" | "Configurações" | "Criar Conteúdo" | "Conteúdos";
 type WorkflowConflict = { code: string; newsId: number; queueId: number | null; queueStatus: string | null; kitId: number | null; options: string[] };
 type News = { id: number; title: string; originalUrl: string; sourceId: number; sourceName: string; domain?: string; author?: string | null; publishedAt: string; collectedAt: string; excerpt: string; content: string; region: string; logisticsImpact: "low" | "medium" | "high"; relevanceScore: number; status: string; topics: string[]; icps: string[]; primaryIcp: string; secondaryIcps: string[]; classificationReason: string; classificationMethod: string; read?: boolean; readAt?: string | null; favorite?: boolean; archived?: boolean; archivedAt?: string | null; internalNotes?: string; manualOverride?: boolean; collectionRunId?: string | null };
 type Source = { id: number; name: string; domain: string; feedUrl: string; websiteUrl: string | null; type?: string; status?: string; reliabilityScore: number; active: boolean; health?: string; priority?: number; collectionFrequencyMinutes?: number; language?: string; country?: string; region?: string; relatedIcps?: string[]; notes?: string; lastCollectedAt: string | null; lastSuccessAt: string | null; lastFailureAt: string | null; lastError: string | null; lastStatus: string; lastDurationMs: number | null; lastHttpStatus: number | null; lastItemCount: number; consecutiveFailures: number; nextCollectionAt?: string | null; archivedAt?: string | null; totalNewsCollected?: number; averageResponseMs?: number };
@@ -20,7 +21,7 @@ type OperationalLogs = { jobs: Array<Record<string, unknown>>; ai: Array<Record<
 
 const VIEWS: { name: View; icon: string }[] = [
   { name: "Visão Executiva", icon: "⌂" }, { name: "Monitoramento", icon: "◉" }, { name: "Fila Editorial", icon: "◫" }, { name: "Biblioteca", icon: "▤" },
-  { name: "Radar", icon: "⌁" }, { name: "Insights", icon: "✦" }, { name: "Configurações", icon: "⚙" },
+  { name: "Inteligência SEO", icon: "◈" }, { name: "Radar", icon: "⌁" }, { name: "Insights", icon: "✦" }, { name: "Configurações", icon: "⚙" },
 ];
 
 const VIEW_TITLES: Record<View, string> = {
@@ -28,6 +29,7 @@ const VIEW_TITLES: Record<View, string> = {
   Monitoramento: "Radar de Notícias",
   "Fila Editorial": "Fila Editorial",
   Biblioteca: "Biblioteca Editorial",
+  "Inteligência SEO": "Inteligência SEO",
   Radar: "Arquitetura SEO",
   Insights: "Insights",
   Configurações: "Configurações",
@@ -225,13 +227,14 @@ export function TFNewsApp({ userName, userEmail, initialUpdatedAt }: { userName:
         {view === "Monitoramento" && <MonitoringWorkspace news={filteredNews} sources={sources} selected={selected} search={search} setSearch={setSearch} toggleNews={toggleNews} toggleAll={(ids) => setSelected(new Set(ids))} startContent={() => void startContent()} startQueue={() => void addToEditorialQueue()} refresh={refreshAll} notify={notify} busy={busy} setBusy={setBusy} aiConfigured={Boolean(aiStatus?.configured)} />}
         {view === "Fila Editorial" && <EditorialQueue initialQueueId={queueFocusId} onOpenKit={openLibraryKit} notify={notify} />}
         {view === "Biblioteca" && <EditorialIntelligence mode="library" wordpressBaseUrl={wordpressBaseUrl} initialKitId={libraryKitId} onMonitor={() => chooseView("Monitoramento")} notify={notify} />}
+        {view === "Inteligência SEO" && <SeoIntelligence globalIcp={globalIcp} notify={notify} />}
         {view === "Radar" && <EditorialIntelligence mode="radar" wordpressBaseUrl={wordpressBaseUrl} onMonitor={() => chooseView("Monitoramento")} notify={notify} />}
         {view === "Insights" && <EditorialIntelligence mode="insights" wordpressBaseUrl={wordpressBaseUrl} onMonitor={() => chooseView("Monitoramento")} notify={notify} />}
         {view === "Criar Conteúdo" && <CreateContent selectedCount={liveSelected.length} brief={brief} article={article} setArticle={setArticle} objective={objective} setObjective={setObjective} keyword={keyword} setKeyword={setKeyword} busy={busy} aiConfigured={Boolean(aiStatus?.configured)} generateBrief={generateBrief} generateArticle={generateArticle} saveArticle={saveArticle} onChooseNews={() => chooseView("Monitoramento")} />}
         {view === "Conteúdos" && <Contents articles={articles} busy={busy} wpConfigured={wpConfigured} openArticle={(item) => { setArticle(item); chooseView("Criar Conteúdo"); }} sendWordPress={sendWordPress} />}
         {view === "Configurações" && <Settings tab={settingsTab} setTab={setSettingsTab} sources={sources} wpConfigured={wpConfigured} aiStatus={aiStatus} logs={logs} busy={busy} setBusy={setBusy} notify={notify} refresh={refreshAll} />}
       </div></main>
-    <nav className="mobile-nav" aria-label="Navegação móvel">{VIEWS.map((item) => <button key={item.name} className={view === item.name ? "active" : ""} onClick={() => chooseView(item.name)} aria-label={item.name}><span aria-hidden="true">{item.icon}</span>{item.name === "Visão Executiva" ? "Visão" : item.name === "Fila Editorial" ? "Fila" : item.name}</button>)}</nav>{workflowConflict && <WorkflowConflictModal conflict={workflowConflict} busy={busy} onCancel={() => setWorkflowConflict(null)} onOpenQueue={openQueueItem} onOpenKit={(kitId) => { setWorkflowConflict(null); openLibraryKit(kitId); }} onGenerate={(mode) => void resolveGenerationConflict(mode)} />}{toast && <div className="toast" role="status">{toast}</div>}
+    <nav className="mobile-nav" aria-label="Navegação móvel">{VIEWS.map((item) => <button key={item.name} className={view === item.name ? "active" : ""} onClick={() => chooseView(item.name)} aria-label={item.name}><span aria-hidden="true">{item.icon}</span>{item.name === "Visão Executiva" ? "Visão" : item.name === "Fila Editorial" ? "Fila" : item.name === "Inteligência SEO" ? "SEO" : item.name}</button>)}</nav>{workflowConflict && <WorkflowConflictModal conflict={workflowConflict} busy={busy} onCancel={() => setWorkflowConflict(null)} onOpenQueue={openQueueItem} onOpenKit={(kitId) => { setWorkflowConflict(null); openLibraryKit(kitId); }} onGenerate={(mode) => void resolveGenerationConflict(mode)} />}{toast && <div className="toast" role="status">{toast}</div>}
   </div>;
 }
 

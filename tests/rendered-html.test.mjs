@@ -23,6 +23,7 @@ test("mantém a experiência principal e remove o starter", async () => {
   assert.match(app, /Monitoramento/);
   assert.match(app, /Visão Executiva/);
   assert.match(app, /Biblioteca/);
+  assert.match(app, /Inteligência SEO/);
   assert.match(app, /Radar/);
   assert.match(app, /Insights/);
   assert.match(app, /EditorialIntelligence/);
