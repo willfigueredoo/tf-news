@@ -473,6 +473,44 @@ export const seoSyncRuns = pgTable("seo_sync_runs", {
   index("seo_sync_runs_status_idx").on(table.status, table.startedAt),
 ]);
 
+export const seoSyncJobs = pgTable("seo_sync_jobs", {
+  id: serial("id").primaryKey(),
+  runId: integer("run_id").notNull().references(() => seoSyncRuns.id),
+  scope: text("scope").notNull(),
+  targetId: integer("target_id").notNull(),
+  trigger: text("trigger").notNull(),
+  status: text("status").notNull().default("queued"),
+  sourceId: integer("source_id"),
+  sourceType: text("source_type"),
+  sourceUrl: text("source_url"),
+  sourcePosition: integer("source_position").notNull().default(0),
+  cursor: text("cursor").notNull().default("{}"),
+  batchSize: integer("batch_size").notNull().default(5),
+  processedItems: integer("processed_items").notNull().default(0),
+  totalItems: integer("total_items"),
+  found: integer("found").notNull().default(0),
+  inserted: integer("inserted").notNull().default(0),
+  updated: integer("updated").notNull().default(0),
+  ignored: integer("ignored").notNull().default(0),
+  unavailable: integer("unavailable").notNull().default(0),
+  errors: integer("errors").notNull().default(0),
+  attempts: integer("attempts").notNull().default(0),
+  lastError: text("last_error"),
+  leaseOwner: text("lease_owner"),
+  leaseExpiresAt: text("lease_expires_at"),
+  nextRunAt: text("next_run_at").notNull(),
+  startedAt: text("started_at"),
+  finishedAt: text("finished_at"),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+}, (table) => [
+  index("seo_sync_jobs_queue_idx").on(table.status, table.nextRunAt, table.createdAt),
+  index("seo_sync_jobs_target_idx").on(table.scope, table.targetId, table.createdAt),
+  uniqueIndex("seo_sync_jobs_active_target_unique")
+    .on(table.scope, table.targetId)
+    .where(sql`${table.status} in ('queued', 'processing', 'retry')`),
+]);
+
 export const seoAuthoritySnapshots = pgTable("seo_authority_snapshots", {
   id: serial("id").primaryKey(),
   siteId: integer("site_id").notNull().references(() => seoSites.id),

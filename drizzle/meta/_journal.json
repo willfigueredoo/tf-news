@@ -50,6 +50,13 @@
       "when": 1784836018752,
       "tag": "0006_tough_vargas",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1784900875388,
+      "tag": "0007_careless_iron_monger",
+      "breakpoints": true
     }
   ]
 }

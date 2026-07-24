@@ -43,5 +43,12 @@ export function useSeoIntelligence(service: SeoIntelligenceService = seoIntellig
     return () => window.clearTimeout(timer);
   }, [reload]);
 
+  useEffect(() => {
+    const activeJob = data?.syncJobs.find((job) => ["queued", "processing", "retry"].includes(job.status));
+    if (!activeJob) return;
+    const timer = window.setTimeout(() => { void reload(); }, 1_500);
+    return () => window.clearTimeout(timer);
+  }, [data, reload]);
+
   return { data, loading, busyAction, error, reload, execute };
 }

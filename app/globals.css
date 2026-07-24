@@ -947,3 +947,18 @@ textarea.field { min-height: 96px; resize: vertical; line-height: 1.55; }
 .kit-sources div { display: grid; gap: 3px; padding-top: 10px; }
 .kit-sources a { color: var(--accent); font-weight: 650; }
 .kit-sources span { color: var(--muted); font-size: 11px; }
+.seo-sync-progress { display: grid; gap: 12px; margin: 18px 0; padding: 17px; border: 1px solid var(--border); border-radius: 11px; background: var(--surface-soft); }
+.seo-sync-progress.processing, .seo-sync-progress.queued, .seo-sync-progress.retry { border-color: var(--primary-border); }
+.seo-sync-progress-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+.seo-sync-progress-head > div { display: grid; gap: 3px; }
+.seo-sync-progress-head strong { color: var(--text-strong); font-size: 11px; }
+.seo-sync-progress-head small, .seo-sync-progress > p { color: var(--muted); font-size: 8px; line-height: 1.5; }
+.seo-sync-progress-head > b { color: var(--accent); font-family: var(--font-family-mono); font-size: 12px; }
+.seo-sync-track { height: 5px; overflow: hidden; border-radius: 999px; background: var(--border); }
+.seo-sync-track > span { display: block; height: 100%; border-radius: inherit; background: var(--accent); transition: width .35s ease; }
+.seo-sync-progress.processing .seo-sync-track > span, .seo-sync-progress.queued .seo-sync-track > span, .seo-sync-progress.retry .seo-sync-track > span { background-image: linear-gradient(90deg, var(--accent), color-mix(in srgb, var(--accent) 55%, white), var(--accent)); background-size: 180% 100%; animation: sync-progress 1.4s linear infinite; }
+.seo-sync-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.seo-sync-metrics > span { display: grid; gap: 2px; color: var(--text-strong); font-family: var(--font-family-mono); font-size: 12px; }
+.seo-sync-metrics small { color: var(--muted); font-family: var(--font-family-sans); font-size: 7px; }
+.seo-sync-progress .error-text { color: var(--danger); }
+@keyframes sync-progress { to { background-position: -180% 0; } }

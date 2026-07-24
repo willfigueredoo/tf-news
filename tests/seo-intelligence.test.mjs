@@ -19,6 +19,7 @@ import {
   safeExternalFetch,
 } from "../lib/seo-security.ts";
 import {
+  collectSourceIncrementalBatch,
   deduplicateArticles,
   normalizeWordPressPost,
 } from "../lib/seo-sync.ts";
@@ -230,3 +231,123 @@ test("frontend usa API real, mantém estados vazios e reutiliza Fila/Biblioteca"
   assert.match(engine, /status NOT IN \('discarded', 'archived'\)/);
   assert.doesNotMatch(engine, /discarded = FALSE/);
 });
+
+test("migration de sincronização incremental é aditiva e persiste cursor, lease e progresso", async () => {
+  const migration = await readFile(new URL("../drizzle/0007_careless_iron_monger.sql", import.meta.url), "utf8");
+  assert.match(migration, /CREATE TABLE "seo_sync_jobs"/);
+  assert.match(migration, /"cursor" text DEFAULT '\{\}' NOT NULL/);
+  assert.match(migration, /"processed_items" integer DEFAULT 0 NOT NULL/);
+  assert.match(migration, /"lease_expires_at" text/);
+  assert.match(migration, /seo_sync_jobs_active_target_unique/);
+  assert.doesNotMatch(migration, /\b(DROP|TRUNCATE)\b/i);
+  assert.doesNotMatch(migration, /\bDELETE\s+FROM\b/i);
+  assert.doesNotMatch(migration, /\bUPDATE\s+\w+\s+SET\b/i);
+});
+
+test("WordPress incremental processa lote pequeno e avança o cursor sem percorrer o acervo", async () => {
+  const requested = [];
+  const posts = Array.from({ length: 5 }, (_, index) => wordpressPost(index + 1));
+  const fetchImpl = async (value) => {
+    const url = new URL(String(value));
+    requested.push(url);
+    return new Response(JSON.stringify(posts), {
+      headers: {
+        "content-type": "application/json",
+        "x-wp-total": "12",
+      },
+    });
+  };
+  const batch = await collectSourceIncrementalBatch({
+    id: 1,
+    source_type: "wordpress_rest",
+    url: "https://example.com/wp-json/wp/v2/posts",
+    priority: 100,
+    status: "confirmed",
+  }, {}, { fetchImpl, batchSize: 5 });
+  assert.equal(batch.articles.length, 5);
+  assert.equal(batch.processed, 5);
+  assert.equal(batch.total, 12);
+  assert.equal(batch.done, false);
+  assert.equal(batch.cursor.offset, 5);
+  assert.equal(batch.cursor.pageSize, 5);
+  assert.match(batch.cursor.before, /^20\d\d-/);
+  assert.equal(requested.length, 1);
+  assert.equal(requested[0].searchParams.get("offset"), "0");
+  assert.equal(requested[0].searchParams.get("per_page"), "5");
+  assert.equal(requested[0].searchParams.has("_embed"), false);
+});
+
+test("WordPress incremental reduz automaticamente o lote quando a resposta excede o limite", async () => {
+  const pageSizes = [];
+  const fetchImpl = async (value) => {
+    const url = new URL(String(value));
+    const pageSize = Number(url.searchParams.get("per_page"));
+    pageSizes.push(pageSize);
+    if (pageSize > 1) {
+      return new Response("[]", {
+        headers: {
+          "content-type": "application/json",
+          "content-length": "7000000",
+        },
+      });
+    }
+    return new Response(JSON.stringify([wordpressPost(1)]), {
+      headers: {
+        "content-type": "application/json",
+        "x-wp-total": "1",
+      },
+    });
+  };
+  const batch = await collectSourceIncrementalBatch({
+    id: 1,
+    source_type: "wordpress_rest",
+    url: "https://example.com/wp-json/wp/v2/posts",
+    priority: 100,
+    status: "confirmed",
+  }, {}, { fetchImpl, batchSize: 5 });
+  assert.deepEqual(pageSizes, [5, 2, 1]);
+  assert.equal(batch.articles.length, 1);
+  assert.equal(batch.done, true);
+  assert.equal(batch.cursor.offset, 1);
+  assert.equal(batch.cursor.pageSize, 1);
+  assert.match(batch.cursor.before, /^20\d\d-/);
+});
+
+test("worker durável retorna 202, usa lease recuperável e frontend acompanha sem bloquear", async () => {
+  const [route, worker, hook, backgroundWorker, service, competitors] = await Promise.all([
+    readFile(new URL("../app/api/seo-intelligence/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/seo-sync-jobs.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/seo-intelligence/hooks/use-seo-intelligence.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/seo-intelligence/hooks/use-seo-sync-worker.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/seo-intelligence/services.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/seo-intelligence/components/competitors-view.tsx", import.meta.url), "utf8"),
+  ]);
+  assert.match(route, /enqueueSeoCompetitorSync/);
+  assert.match(route, /status:\s*202/);
+  assert.match(route, /processNextSeoSyncBatch/);
+  assert.match(worker, /FOR UPDATE SKIP LOCKED/);
+  assert.match(worker, /lease_expires_at < \?/);
+  assert.match(worker, /cursor = \?/);
+  assert.match(worker, /processed_items = \?/);
+  assert.match(hook, /syncJobs/);
+  assert.match(backgroundWorker, /\/api\/seo-sync-jobs/);
+  assert.match(backgroundWorker, /method:\s*"POST"/);
+  assert.match(competitors, /Você pode fechar esta tela/);
+  assert.match(competitors, /seo-sync-progress/);
+  assert.doesNotMatch(service, /new Error\(payload\.error/);
+  assert.match(service, /readErrorMessage/);
+});
+
+function wordpressPost(id) {
+  return {
+    id,
+    link: `https://example.com/blog/artigo-${id}`,
+    slug: `artigo-${id}`,
+    status: "publish",
+    date_gmt: "2026-07-20T10:00:00",
+    modified_gmt: "2026-07-20T10:00:00",
+    title: { rendered: `Artigo ${id}` },
+    excerpt: { rendered: "<p>Resumo editorial verificável.</p>" },
+    content: { rendered: "<article><p>Conteúdo editorial suficientemente completo para análise logística e competitiva.</p></article>" },
+  };
+}

@@ -8,6 +8,7 @@ import { ExecutiveDashboard } from "./executive-dashboard";
 import { MonitoringWorkspace } from "./monitoring-workspace";
 import { OperationsHistory } from "./operations-history";
 import { SeoIntelligence } from "./seo-intelligence/seo-intelligence";
+import { useSeoSyncWorker } from "./seo-intelligence/hooks/use-seo-sync-worker";
 import { SourceManager } from "./source-manager";
 
 type View = "Visão Executiva" | "Monitoramento" | "Fila Editorial" | "Biblioteca" | "Inteligência SEO" | "Radar" | "Insights" | "Configurações" | "Criar Conteúdo" | "Conteúdos";
@@ -44,6 +45,7 @@ function impactLabel(value: News["logisticsImpact"]) { return value === "high" ?
 
 export function TFNewsApp({ userName, userEmail, initialUpdatedAt }: { userName: string; userEmail: string; initialUpdatedAt: string }) {
   const [view, setView] = useState<View>("Visão Executiva");
+  useSeoSyncWorker();
   const [globalIcp, setGlobalIcp] = useState("Todos os ICPs");
   const [news, setNews] = useState<News[]>([]);
   const [sources, setSources] = useState<Source[]>([]);

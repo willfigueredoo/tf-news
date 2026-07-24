@@ -20,6 +20,20 @@ A ordem de coleta é:
 
 O coletor roda somente no servidor, com bloqueio SSRF, timeout, limite de resposta, validação de `Content-Type`, redirects limitados e conteúdo convertido para texto seguro. A sincronização manual usa `/api/seo-intelligence`; a diária usa `/api/cron/seo`, protegida por `CRON_SECRET`.
 
+### Jobs incrementais
+
+Sincronizações do site principal e dos concorrentes são registradas em `seo_sync_jobs`.
+
+- O comando manual apenas cria ou reutiliza um job e responde com HTTP 202.
+- Cada worker processa no máximo um pequeno lote, salva o cursor e libera a execução.
+- WordPress REST usa paginação por `offset`, campos reduzidos e adapta o lote quando a resposta é grande.
+- RSS usa cursor por item.
+- Sitemaps usam cursor por arquivo filho e por URL, com poucas páginas processadas por lote.
+- Um lease impede dois workers de processarem o mesmo lote.
+- Se a função for interrompida, o lease expira e o próximo worker retoma o cursor persistido.
+- O cliente mantém o worker ativo enquanto o TF News estiver aberto; o cron diário retoma qualquer job pendente.
+- Artigos são deduplicados antes da atualização do cursor, permitindo reprocessar com segurança um lote interrompido.
+
 ## TF Authority Score
 
 O score é um índice proprietário, de 0 a 100. Nesta versão:

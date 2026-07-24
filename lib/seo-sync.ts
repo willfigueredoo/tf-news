@@ -21,7 +21,7 @@ type SiteRow = {
   rss_url: string | null;
 };
 
-type SeoSourceRow = {
+export type SeoSourceRow = {
   id: number;
   source_type: "wordpress_rest" | "sitemap" | "rss" | "html_index";
   url: string;
@@ -39,7 +39,7 @@ type CompetitorRow = {
   active: boolean;
 };
 
-type CollectedArticle = {
+export type CollectedArticle = {
   externalId: string;
   title: string;
   url: string;
@@ -83,6 +83,23 @@ export type DiscoveredSeoSource = {
   valid: boolean;
   itemCount: number;
   detail: string;
+};
+
+export type SeoSyncCursor = {
+  offset?: number;
+  pageSize?: number;
+  before?: string;
+  childIndex?: number;
+  entryOffset?: number;
+};
+
+export type SeoSyncBatch = {
+  articles: CollectedArticle[];
+  cursor: SeoSyncCursor;
+  processed: number;
+  total: number | null;
+  done: boolean;
+  method: "wordpress_rest" | "sitemap" | "rss";
 };
 
 export async function getPrimarySeoSite(db: Database) {
@@ -180,6 +197,10 @@ export async function removeSeoCompetitor(db: Database, id: number) {
   if (!current) return false;
   const now = new Date().toISOString();
   await db.batch([
+    db.prepare("UPDATE seo_sync_jobs SET status = 'cancelled', finished_at = ?, updated_at = ?, lease_owner = NULL, lease_expires_at = NULL WHERE scope = 'competitor' AND target_id = ? AND status IN ('queued', 'processing', 'retry')")
+      .bind(now, now, id),
+    db.prepare("UPDATE seo_sync_runs SET status = 'cancelled', finished_at = ?, error_message = 'Concorrente removido pelo usuário.' WHERE scope = 'competitor' AND target_id = ? AND status IN ('queued', 'running')")
+      .bind(now, id),
     db.prepare("DELETE FROM seo_competitor_articles WHERE competitor_id = ?").bind(id),
     db.prepare("DELETE FROM seo_competitor_sources WHERE competitor_id = ?").bind(id),
     db.prepare("UPDATE seo_opportunities SET competitor_ids = '[]', updated_at = ? WHERE competitor_ids::jsonb @> ?::jsonb")
@@ -385,6 +406,187 @@ async function collectFromSource(source: SeoSourceRow, fetchImpl?: typeof fetch,
   throw new Error("Fonte indisponível para coleta automática.");
 }
 
+export async function collectSourceIncrementalBatch(
+  source: SeoSourceRow,
+  cursor: SeoSyncCursor,
+  options: { fetchImpl?: typeof fetch; batchSize?: number } = {},
+): Promise<SeoSyncBatch> {
+  const batchSize = Math.max(1, Math.min(options.batchSize ?? 5, 20));
+  if (source.source_type === "wordpress_rest") {
+    return collectWordPressIncremental(source.url, cursor, batchSize, options.fetchImpl);
+  }
+  if (source.source_type === "rss") {
+    return collectRssIncremental(source.url, cursor, batchSize, options.fetchImpl);
+  }
+  if (source.source_type === "sitemap") {
+    return collectSitemapIncremental(source.url, cursor, Math.min(batchSize, 5), options.fetchImpl);
+  }
+  throw new Error("Fonte indisponível para coleta automática.");
+}
+
+async function collectWordPressIncremental(
+  baseUrl: string,
+  cursor: SeoSyncCursor,
+  requestedPageSize: number,
+  fetchImpl?: typeof fetch,
+): Promise<SeoSyncBatch> {
+  const offset = Math.max(0, cursor.offset ?? 0);
+  const before = cursor.before ?? new Date().toISOString();
+  let pageSize = Math.max(1, Math.min(cursor.pageSize ?? requestedPageSize, requestedPageSize));
+  while (true) {
+    try {
+      const url = new URL(baseUrl);
+      url.searchParams.set("status", "publish");
+      url.searchParams.set("per_page", String(pageSize));
+      url.searchParams.set("offset", String(offset));
+      url.searchParams.set("orderby", "date");
+      url.searchParams.set("order", "desc");
+      url.searchParams.set("before", before);
+      url.searchParams.set("_fields", [
+        "id", "date", "date_gmt", "modified", "modified_gmt", "link", "slug", "status",
+        "title", "excerpt", "content", "yoast_head_json",
+      ].join(","));
+      const result = await safeExternalFetch(url.toString(), {
+        fetchImpl,
+        timeoutMs: 12_000,
+        maxBytes: 6_000_000,
+        allowedContentTypes: /json/i,
+        accept: "application/json",
+      });
+      const posts = JSON.parse(result.text) as unknown;
+      if (!Array.isArray(posts)) throw new Error("A API WordPress não retornou uma lista de artigos.");
+      const reportedTotal = Number(result.response.headers.get("x-wp-total") ?? posts.length);
+      const total = Math.max(posts.length, Number.isFinite(reportedTotal) ? reportedTotal : posts.length);
+      const articles = await Promise.all(posts.map((post) => normalizeWordPressPost(post)));
+      const nextOffset = offset + posts.length;
+      return {
+        articles: deduplicateArticles(articles),
+        cursor: { offset: nextOffset, pageSize, before },
+        processed: posts.length,
+        total,
+        done: posts.length === 0 || posts.length < pageSize || nextOffset >= total,
+        method: "wordpress_rest",
+      };
+    } catch (error) {
+      if (/excede o limite/i.test(safeError(error)) && pageSize > 1) {
+        pageSize = Math.max(1, Math.floor(pageSize / 2));
+        continue;
+      }
+      throw error;
+    }
+  }
+}
+
+async function collectRssIncremental(
+  url: string,
+  cursor: SeoSyncCursor,
+  batchSize: number,
+  fetchImpl?: typeof fetch,
+): Promise<SeoSyncBatch> {
+  const offset = Math.max(0, cursor.offset ?? 0);
+  const all = await collectRss(url, fetchImpl, 2_000);
+  const articles = all.slice(offset, offset + batchSize);
+  const nextOffset = offset + articles.length;
+  return {
+    articles,
+    cursor: { offset: nextOffset },
+    processed: articles.length,
+    total: all.length,
+    done: nextOffset >= all.length,
+    method: "rss",
+  };
+}
+
+async function collectSitemapIncremental(
+  url: string,
+  cursor: SeoSyncCursor,
+  batchSize: number,
+  fetchImpl?: typeof fetch,
+): Promise<SeoSyncBatch> {
+  const result = await safeExternalFetch(url, {
+    fetchImpl,
+    timeoutMs: 10_000,
+    maxBytes: 4_000_000,
+    allowedContentTypes: /(xml|text)/i,
+  });
+  const sitemap = parseSitemap(result.text);
+  if (sitemap.entries.length) {
+    const offset = Math.max(0, cursor.offset ?? 0);
+    const entries = sitemap.entries.slice(offset, offset + batchSize);
+    const articles = await collectSitemapEntryBatch(entries, fetchImpl);
+    const nextOffset = offset + entries.length;
+    return {
+      articles,
+      cursor: { offset: nextOffset },
+      processed: entries.length,
+      total: sitemap.entries.length,
+      done: nextOffset >= sitemap.entries.length,
+      method: "sitemap",
+    };
+  }
+
+  const children = prioritizedSitemaps(sitemap.childSitemaps);
+  if (!children.length) {
+    return { articles: [], cursor: {}, processed: 0, total: 0, done: true, method: "sitemap" };
+  }
+  let childIndex = Math.max(0, cursor.childIndex ?? 0);
+  let entryOffset = Math.max(0, cursor.entryOffset ?? 0);
+  while (childIndex < children.length) {
+    const nested = await safeExternalFetch(children[childIndex], {
+      fetchImpl,
+      timeoutMs: 10_000,
+      maxBytes: 4_000_000,
+      allowedContentTypes: /(xml|text)/i,
+    });
+    const entries = parseSitemap(nested.text).entries;
+    if (entryOffset >= entries.length) {
+      childIndex += 1;
+      entryOffset = 0;
+      continue;
+    }
+    const selected = entries.slice(entryOffset, entryOffset + batchSize);
+    const articles = await collectSitemapEntryBatch(selected, fetchImpl);
+    const nextOffset = entryOffset + selected.length;
+    const childDone = nextOffset >= entries.length;
+    return {
+      articles,
+      cursor: childDone
+        ? { childIndex: childIndex + 1, entryOffset: 0 }
+        : { childIndex, entryOffset: nextOffset },
+      processed: selected.length,
+      total: null,
+      done: childDone && childIndex + 1 >= children.length,
+      method: "sitemap",
+    };
+  }
+  return { articles: [], cursor: { childIndex, entryOffset: 0 }, processed: 0, total: null, done: true, method: "sitemap" };
+}
+
+function prioritizedSitemaps(values: string[]) {
+  const editorial = values.filter((child) => /(post|blog|news|noticia|article)/i.test(child));
+  return (editorial.length ? editorial : values).slice(0, 50);
+}
+
+async function collectSitemapEntryBatch(
+  entries: Array<{ url: string; lastModifiedAt: string | null }>,
+  fetchImpl?: typeof fetch,
+) {
+  const settled = await Promise.allSettled(entries.map(async (entry) => {
+    const page = await safeExternalFetch(entry.url, {
+      fetchImpl,
+      timeoutMs: 8_000,
+      maxBytes: 2_000_000,
+      allowedContentTypes: /(html|text)/i,
+      accept: "text/html",
+    });
+    return normalizeSitemapPage(page, entry.lastModifiedAt);
+  }));
+  return deduplicateArticles(settled
+    .filter((item): item is PromiseFulfilledResult<CollectedArticle | null> => item.status === "fulfilled")
+    .map((item) => item.value)
+    .filter((item): item is CollectedArticle => Boolean(item)));
+}
+
 async function collectWordPress(baseUrl: string, fetchImpl?: typeof fetch, maxArticles = 2_000) {
   const collected: CollectedArticle[] = [];
   let page = 1;
@@ -554,7 +756,44 @@ async function collectSitemap(url: string, fetchImpl?: typeof fetch, maxArticles
   return deduplicateArticles(collected);
 }
 
-async function persistSiteArticles(db: Database, siteId: number, articles: CollectedArticle[], collectedAt: string) {
+async function normalizeSitemapPage(
+  page: Awaited<ReturnType<typeof safeExternalFetch>>,
+  lastModifiedAt: string | null,
+): Promise<CollectedArticle | null> {
+  const metadata = extractHtmlMetadata(page.text, page.finalUrl);
+  if (!metadata.title || metadata.text.length < 120) return null;
+  const publishedAt = metadata.publishedAt ?? lastModifiedAt;
+  const classification = classifyNews({
+    title: metadata.title,
+    excerpt: `${metadata.description} ${metadata.text.slice(0, 5_000)}`,
+    publishedAt: publishedAt ?? new Date().toISOString(),
+    reliabilityScore: 75,
+  });
+  return {
+    externalId: metadata.canonicalUrl,
+    title: metadata.title,
+    url: normalizeExternalUrl(page.finalUrl),
+    canonicalUrl: metadata.canonicalUrl,
+    slug: new URL(metadata.canonicalUrl).pathname.split("/").filter(Boolean).at(-1) ?? "",
+    excerpt: metadata.description || metadata.text.slice(0, 500),
+    contentText: metadata.text,
+    publishedAt,
+    modifiedAt: metadata.modifiedAt,
+    author: metadata.author,
+    categories: [],
+    tags: metadata.keywords,
+    featuredImageUrl: metadata.image,
+    status: "published",
+    metaDescription: metadata.description || null,
+    keywords: uniqueTerms([...metadata.keywords, ...classification.topics]),
+    icps: uniqueTerms([classification.primaryIcp, ...classification.secondaryIcps]),
+    topics: classification.topics,
+    contentHash: await sha256(`${metadata.title}\n${metadata.description}\n${metadata.text}`),
+    method: "sitemap",
+  };
+}
+
+export async function persistSiteArticles(db: Database, siteId: number, articles: CollectedArticle[], collectedAt: string) {
   let inserted = 0;
   let updated = 0;
   let ignored = 0;
@@ -614,7 +853,7 @@ async function persistSiteArticles(db: Database, siteId: number, articles: Colle
   return { inserted, updated, ignored };
 }
 
-async function persistCompetitorArticles(db: Database, competitorId: number, articles: CollectedArticle[], collectedAt: string) {
+export async function persistCompetitorArticles(db: Database, competitorId: number, articles: CollectedArticle[], collectedAt: string) {
   let inserted = 0;
   let updated = 0;
   let ignored = 0;
@@ -671,13 +910,13 @@ async function persistCompetitorArticles(db: Database, competitorId: number, art
   return { inserted, updated, ignored };
 }
 
-async function markUnavailableSiteArticles(db: Database, siteId: number, startedAt: string) {
+export async function markUnavailableSiteArticles(db: Database, siteId: number, startedAt: string) {
   const result = await db.prepare("UPDATE seo_articles SET status = 'unavailable', unavailable_at = ? WHERE site_id = ? AND last_collected_at < ? AND status = 'published' RETURNING id")
     .bind(new Date().toISOString(), siteId, startedAt).run();
   return result.meta.changes;
 }
 
-async function markUnavailableCompetitorArticles(db: Database, competitorId: number, startedAt: string) {
+export async function markUnavailableCompetitorArticles(db: Database, competitorId: number, startedAt: string) {
   const result = await db.prepare("UPDATE seo_competitor_articles SET status = 'unavailable', unavailable_at = ? WHERE competitor_id = ? AND last_collected_at < ? AND status = 'published' RETURNING id")
     .bind(new Date().toISOString(), competitorId, startedAt).run();
   return result.meta.changes;
@@ -713,13 +952,13 @@ function finishSyncRun(db: Database, runId: number, status: string, result: SeoS
   );
 }
 
-async function markSourceSuccess(db: Database, table: "seo_site_sources" | "seo_competitor_sources", sourceId: number) {
+export async function markSourceSuccess(db: Database, table: "seo_site_sources" | "seo_competitor_sources", sourceId: number) {
   const now = new Date().toISOString();
   await db.prepare(`UPDATE ${table} SET status = CASE WHEN status = 'fallback' THEN 'fallback' ELSE 'active' END, last_verified_at = ?, last_error = NULL, updated_at = ? WHERE id = ?`)
     .bind(now, now, sourceId).run();
 }
 
-async function markSourceFailure(db: Database, table: "seo_site_sources" | "seo_competitor_sources", sourceId: number, error: string) {
+export async function markSourceFailure(db: Database, table: "seo_site_sources" | "seo_competitor_sources", sourceId: number, error: string) {
   const now = new Date().toISOString();
   await db.prepare(`UPDATE ${table} SET last_verified_at = ?, last_error = ?, updated_at = ? WHERE id = ?`)
     .bind(now, error.slice(0, 800), now, sourceId).run();
@@ -807,7 +1046,7 @@ function stripQuery(value: string) {
   return url.toString();
 }
 
-function safeError(error: unknown) {
+export function safeError(error: unknown) {
   return (error instanceof Error ? error.message : "Falha na sincronização.")
     .replace(/(key|token|password|authorization)\s*[:=]\s*\S+/gi, "$1=[REDACTED]")
     .slice(0, 1_000);

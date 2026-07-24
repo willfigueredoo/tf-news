@@ -82,6 +82,7 @@ export const seoActionSchema = z.discriminatedUnion("action", [
     sources: z.array(discoveredSourceSchema).min(1).max(10),
   }),
   z.object({ action: z.literal("sync_competitor"), competitorId: z.number().int().positive() }),
+  z.object({ action: z.literal("process_sync_job"), jobId: z.number().int().positive().optional() }),
   z.object({ action: z.literal("analyze_competitor"), competitorId: z.number().int().positive(), force: z.boolean().default(false) }),
   z.object({
     action: z.literal("update_competitor"),

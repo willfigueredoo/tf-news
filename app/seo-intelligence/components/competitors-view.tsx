@@ -7,6 +7,7 @@ import type {
   CompetitorArticle,
   DiscoveredSeoSource,
   SeoApiAction,
+  SeoSyncJob,
 } from "../types";
 
 export function CompetitorsView({
@@ -22,18 +23,19 @@ export function CompetitorsView({
   execute: <T>(action: SeoApiAction) => Promise<T>;
   notify: (message: string) => void;
 }) {
-  const [selected, setSelected] = useState<Competitor | null>(null);
+  const [selectedId, setSelectedId] = useState<number | null>(null);
   const [adding, setAdding] = useState(false);
   const [deletePending, setDeletePending] = useState(false);
+  const selected = competitors.find((competitor) => competitor.id === selectedId) ?? null;
   const selectedArticles = useMemo(
-    () => articles.filter((article) => article.competitorId === selected?.id),
-    [articles, selected],
+    () => articles.filter((article) => article.competitorId === selectedId),
+    [articles, selectedId],
   );
   useEscapeKey(() => {
     if (deletePending) setDeletePending(false);
-    else if (selected) setSelected(null);
+    else if (selectedId) setSelectedId(null);
     else setAdding(false);
-  }, Boolean(selected || adding || deletePending) && !busy);
+  }, Boolean(selectedId || adding || deletePending) && !busy);
 
   async function run(action: SeoApiAction, success: string) {
     try {
@@ -52,7 +54,7 @@ export function CompetitorsView({
       </div>
       {competitors.length ? <>
         <div className="seo-table-head"><span>Transportadora</span><span>Artigos · 30 dias</span><span>Última publicação</span><span>Status</span></div>
-        {competitors.map((competitor) => <button className="seo-competitor-row" type="button" key={competitor.id} onClick={() => setSelected(competitor)}>
+        {competitors.map((competitor) => <button className="seo-competitor-row" type="button" key={competitor.id} onClick={() => setSelectedId(competitor.id)}>
           <span><strong>{competitor.name}</strong><small>{competitor.domain}</small></span>
           <b>{competitor.articlesLast30Days}</b>
           <time dateTime={competitor.lastPublishedAt ?? undefined}>{competitor.lastPublishedAt ? formatDate(competitor.lastPublishedAt) : "Sem artigos"}</time>
@@ -66,9 +68,9 @@ export function CompetitorsView({
 
     {adding && <CompetitorDiscovery busy={busy} execute={execute} notify={notify} onClose={() => setAdding(false)} />}
 
-    {selected && <div className="detail-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) setSelected(null); }}>
+    {selected && <div className="detail-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) setSelectedId(null); }}>
       <aside className="detail-drawer seo-competitor-drawer" role="dialog" aria-modal="true" aria-labelledby="seo-competitor-title">
-        <div className="detail-head"><div><div className="eyebrow">Inteligência competitiva</div><h2 id="seo-competitor-title">{selected.name}</h2><span className="content-meta">{selected.domain} · {selected.articleCount} artigo(s) no acervo</span></div><button className="ghost" onClick={() => setSelected(null)} disabled={busy} aria-label="Fechar análise do concorrente">Fechar</button></div>
+        <div className="detail-head"><div><div className="eyebrow">Inteligência competitiva</div><h2 id="seo-competitor-title">{selected.name}</h2><span className="content-meta">{selected.domain} · {selected.articleCount} artigo(s) no acervo</span></div><button className="ghost" onClick={() => setSelectedId(null)} disabled={busy} aria-label="Fechar análise do concorrente">Fechar</button></div>
 
         <section className="seo-competitor-summary">
           <small>Leitura editorial</small>
@@ -79,12 +81,20 @@ export function CompetitorsView({
         </section>
 
         <div className="seo-competitor-actions">
-          <button className="secondary" disabled={busy || !selected.active} onClick={() => void run({ action: "sync_competitor", competitorId: selected.id }, `${selected.name} foi sincronizada.`)}>Sincronizar</button>
-          <button className="primary" disabled={busy || !selected.articleCount} onClick={() => void run({ action: "analyze_competitor", competitorId: selected.id, force: true }, `Análise de ${selected.name} atualizada.`)}>Analisar com Gemini</button>
+          <button
+            className="secondary"
+            disabled={busy || !selected.active || isActiveJob(selected.syncJob?.status)}
+            onClick={() => void run(
+              { action: "sync_competitor", competitorId: selected.id },
+              `Sincronização de ${selected.name} iniciada. Você pode continuar usando o TF News.`,
+            )}
+          >{isActiveJob(selected.syncJob?.status) ? "Sincronizando…" : "Sincronizar"}</button>
+          <button className="primary" disabled={busy || !selected.articleCount || isActiveJob(selected.syncJob?.status)} onClick={() => void run({ action: "analyze_competitor", competitorId: selected.id, force: true }, `Análise de ${selected.name} atualizada.`)}>Analisar com Gemini</button>
           <button className="ghost" disabled={busy} onClick={() => void run({ action: "update_competitor", competitorId: selected.id, active: !selected.active }, selected.active ? "Monitoramento pausado." : "Monitoramento ativado.")}>{selected.active ? "Pausar" : "Ativar"}</button>
           <button className="ghost danger" disabled={busy} onClick={() => setDeletePending(true)}>Remover</button>
         </div>
 
+        {selected.syncJob && <SyncProgress job={selected.syncJob} />}
         {selected.lastError && <div className="notice error">Fonte indisponível para coleta automática: {selected.lastError}</div>}
 
         <div className="seo-source-list">
@@ -114,7 +124,7 @@ export function CompetitorsView({
         <div className="inline-actions"><button className="ghost" disabled={busy} onClick={() => setDeletePending(false)}>Cancelar</button><button className="danger-button" disabled={busy} onClick={() => void (async () => {
           await run({ action: "delete_competitor", competitorId: selected.id, confirmation: "delete_competitor" }, "Concorrente removido.");
           setDeletePending(false);
-          setSelected(null);
+          setSelectedId(null);
         })()}>Remover concorrente</button></div>
       </div>
     </div>}
@@ -160,7 +170,7 @@ function CompetitorDiscovery({ busy, execute, notify, onClose }: {
       return;
     }
     try {
-      const result = await execute<{ syncError?: string | null }>({
+      await execute<{ job?: SeoSyncJob }>({
         action: "save_competitor",
         name,
         domain,
@@ -168,7 +178,7 @@ function CompetitorDiscovery({ busy, execute, notify, onClose }: {
         notes,
         sources: confirmed.map((source) => ({ sourceType: source.sourceType, url: source.url })),
       });
-      notify(result.syncError ? `Concorrente cadastrado. A primeira coleta requer atenção: ${result.syncError}` : "Concorrente cadastrado e primeira sincronização concluída.");
+      notify("Concorrente cadastrado. A sincronização foi iniciada em segundo plano.");
       onClose();
     } catch (error) {
       notify(error instanceof Error ? error.message : "Não foi possível cadastrar o concorrente.");
@@ -203,6 +213,31 @@ function CompetitorDiscovery({ busy, execute, notify, onClose }: {
   </div>;
 }
 
+function SyncProgress({ job }: { job: SeoSyncJob }) {
+  const active = isActiveJob(job.status);
+  const complete = job.status === "completed";
+  const progress = job.progressPercent ?? (complete ? 100 : null);
+  return <section className={`seo-sync-progress ${job.status}`} aria-live="polite">
+    <div className="seo-sync-progress-head">
+      <div><strong>{complete ? "Sincronização concluída" : active ? "Sincronização em andamento" : "Última sincronização"}</strong><small>{job.sourceType ? sourceLabel(job.sourceType) : "Preparando fonte"} · lote {Math.max(1, job.attempts)}</small></div>
+      <b>{progress === null ? `${job.processedItems} processados` : `${progress}%`}</b>
+    </div>
+    <div className="seo-sync-track" aria-hidden="true"><span style={{ width: `${progress ?? Math.min(92, 12 + job.processedItems)}%` }} /></div>
+    <div className="seo-sync-metrics">
+      <span>{job.processedItems}<small>Processados</small></span>
+      <span>{job.inserted}<small>Novos</small></span>
+      <span>{job.updated}<small>Atualizados</small></span>
+      <span>{job.ignored}<small>Sem alteração</small></span>
+    </div>
+    {active && <p>O progresso é salvo a cada lote. Você pode fechar esta tela; a próxima execução continuará do último ponto.</p>}
+    {job.status === "failed" && job.lastError && <p className="error-text">{job.lastError}</p>}
+  </section>;
+}
+
+function isActiveJob(status?: string) {
+  return Boolean(status && ["queued", "processing", "retry"].includes(status));
+}
+
 function analysisSummary(competitor: Competitor) {
   const summary = competitor.analysis?.payload?.summary;
   return typeof summary === "string" ? summary : null;
@@ -216,6 +251,7 @@ function syncStatus(value: string) {
   if (value === "error") return "Com erro";
   if (value === "ready") return "Pronta";
   if (value === "paused") return "Pausada";
+  if (value === "queued") return "Na fila";
   if (value === "syncing") return "Sincronizando";
   return "Aguardando coleta";
 }

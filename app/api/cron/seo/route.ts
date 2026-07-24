@@ -1,7 +1,10 @@
 import { getRuntimeDb } from "../../../../db/runtime";
 import { getAiConfig, getCronSecret } from "../../../../lib/runtime-config";
 import { refreshSeoIntelligence } from "../../../../lib/seo-engine";
-import { syncAllSeoSources } from "../../../../lib/seo-sync";
+import {
+  drainSeoSyncJobs,
+  enqueueAllSeoSyncJobs,
+} from "../../../../lib/seo-sync-jobs";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -14,18 +17,18 @@ export async function GET(request: Request) {
 
   try {
     const db = await getRuntimeDb();
-    const sync = await syncAllSeoSources(db, {
-      trigger: "automatic",
-      maxArticles: 500,
+    const queued = await enqueueAllSeoSyncJobs(db, "automatic");
+    const sync = await drainSeoSyncJobs(db, {
+      maxBatches: 12,
+      deadlineMs: 45_000,
     });
-    if (sync.locked) {
-      return Response.json({ sync, intelligence: null }, { status: 409 });
-    }
-    const intelligence = await refreshSeoIntelligence(db, getAiConfig(), {
-      withAi: sync.changed,
-      forceAi: false,
-    });
-    return Response.json({ sync, intelligence });
+    const intelligence = sync.completedJobs > 0
+      ? await refreshSeoIntelligence(db, getAiConfig(), {
+        withAi: sync.changed,
+        forceAi: false,
+      })
+      : null;
+    return Response.json({ queued, sync, intelligence });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Falha na atualização agendada da Inteligência SEO.";
     console.error("[seo-cron]", message.replace(/(key|token|password|authorization|secret)\s*[:=]\s*\S+/gi, "$1=[REDACTED]"));

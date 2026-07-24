@@ -139,6 +139,31 @@ type SyncRunRow = {
   error_message: string | null;
 };
 
+type SyncJobRow = {
+  id: number;
+  run_id: number;
+  scope: string;
+  target_id: number;
+  trigger: string;
+  status: string;
+  source_type: string | null;
+  processed_items: number;
+  total_items: number | null;
+  found: number;
+  inserted: number;
+  updated: number;
+  ignored: number;
+  unavailable: number;
+  errors: number;
+  attempts: number;
+  last_error: string | null;
+  next_run_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 export async function loadSeoIntelligenceSnapshot(db: Database, config: AiConfig) {
   const site = await db.prepare("SELECT * FROM seo_sites ORDER BY id LIMIT 1").first<SiteRow>();
   if (!site) {
@@ -150,6 +175,7 @@ export async function loadSeoIntelligenceSnapshot(db: Database, config: AiConfig
       competitorArticles: [],
       opportunities: [],
       syncRuns: [],
+      syncJobs: [],
       ai: aiState(config),
       google: { searchConsole: "not_connected", analytics4: "not_connected" },
     };
@@ -165,6 +191,7 @@ export async function loadSeoIntelligenceSnapshot(db: Database, config: AiConfig
     competitorAnalyses,
     opportunities,
     syncRuns,
+    syncJobs,
   ] = await Promise.all([
     db.prepare("SELECT id, source_type, url, status, priority, last_verified_at, last_error FROM seo_site_sources WHERE site_id = ? ORDER BY priority DESC, id").bind(site.id).all<SourceRow>(),
     db.prepare("SELECT * FROM seo_authority_snapshots WHERE site_id = ? ORDER BY calculated_at DESC, id DESC LIMIT 30").bind(site.id).all<SnapshotRow>(),
@@ -208,11 +235,21 @@ export async function loadSeoIntelligenceSnapshot(db: Database, config: AiConfig
     `).bind(site.id).all<OpportunityRow>(),
     db.prepare("SELECT id, scope, target_id, trigger, status, method, started_at, finished_at, duration_ms, found, inserted, updated, ignored, unavailable, errors, error_message FROM seo_sync_runs ORDER BY started_at DESC, id DESC LIMIT 50")
       .all<SyncRunRow>(),
+    db.prepare(`
+      SELECT DISTINCT ON (scope, target_id)
+        id, run_id, scope, target_id, trigger, status, source_type, processed_items, total_items,
+        found, inserted, updated, ignored, unavailable, errors, attempts, last_error, next_run_at,
+        started_at, finished_at, created_at, updated_at
+      FROM seo_sync_jobs
+      ORDER BY scope, target_id, created_at DESC, id DESC
+    `).all<SyncJobRow>(),
   ]);
 
   const latestSnapshot = snapshots.results[0] ?? null;
   const latestAuthorityAnalysis = authorityAnalysis ? mapAnalysis(authorityAnalysis) : null;
   const analysesByCompetitor = new Map(competitorAnalyses.results.map((analysis) => [analysis.competitor_id, mapAnalysis(analysis)]));
+  const latestJobs = syncJobs.results.map(mapSyncJob);
+  const jobsByTarget = new Map(latestJobs.map((job) => [`${job.scope}:${job.targetId}`, job]));
   const sourcesByCompetitor = new Map<number, Array<ReturnType<typeof mapSource>>>();
   for (const source of competitorSources.results) {
     const current = sourcesByCompetitor.get(source.competitor_id) ?? [];
@@ -258,6 +295,7 @@ export async function loadSeoIntelligenceSnapshot(db: Database, config: AiConfig
       articlesSynced: site.articles_synced,
       discoveryMethod: site.discovery_method,
       sources: siteSources.results.map(mapSource),
+      syncJob: jobsByTarget.get(`site:${site.id}`) ?? null,
     },
     authority,
     competitors: competitors.results.map((competitor) => ({
@@ -278,6 +316,7 @@ export async function loadSeoIntelligenceSnapshot(db: Database, config: AiConfig
       lastPublishedAt: competitor.last_published_at,
       sources: sourcesByCompetitor.get(competitor.id) ?? [],
       analysis: analysesByCompetitor.get(competitor.id) ?? null,
+      syncJob: jobsByTarget.get(`competitor:${competitor.id}`) ?? null,
     })),
     competitorArticles: competitorArticles.results.map((article) => ({
       id: article.id,
@@ -333,6 +372,7 @@ export async function loadSeoIntelligenceSnapshot(db: Database, config: AiConfig
       errors: run.errors,
       errorMessage: run.error_message,
     })),
+    syncJobs: latestJobs,
     ai: aiState(config),
     google: { searchConsole: "not_connected", analytics4: "not_connected" },
   };
@@ -390,6 +430,36 @@ function mapSource(source: SourceRow) {
   };
 }
 
+function mapSyncJob(row: SyncJobRow) {
+  return {
+    id: row.id,
+    runId: row.run_id,
+    scope: row.scope,
+    targetId: row.target_id,
+    trigger: row.trigger,
+    status: row.status,
+    sourceType: row.source_type,
+    processedItems: row.processed_items,
+    totalItems: row.total_items,
+    progressPercent: row.total_items && row.total_items > 0
+      ? Math.min(100, Math.round((row.processed_items / row.total_items) * 100))
+      : null,
+    found: row.found,
+    inserted: row.inserted,
+    updated: row.updated,
+    ignored: row.ignored,
+    unavailable: row.unavailable,
+    errors: row.errors,
+    attempts: row.attempts,
+    lastError: row.last_error,
+    nextRunAt: row.next_run_at,
+    startedAt: row.started_at,
+    finishedAt: row.finished_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
 function mapAnalysis(row: AnalysisRow) {
   return {
     id: row.id,
@@ -418,6 +488,7 @@ function aiState(config: AiConfig) {
 
 function deriveState(site: SiteRow, snapshot: SnapshotRow | null, config: AiConfig) {
   if (site.status === "error") return "sync_error";
+  if (site.status === "syncing") return "syncing";
   if (!site.last_sync_at) return "awaiting_first_sync";
   if (!snapshot) return "analysis_pending";
   if (!aiConfigured(config)) return "gemini_unavailable";

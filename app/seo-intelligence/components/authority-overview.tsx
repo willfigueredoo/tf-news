@@ -73,8 +73,8 @@ export function AuthorityOverview({
     </section> : <section className="card empty">
       <strong>Aguardando o primeiro cálculo</strong>
       Sincronize o acervo publicado da TransFAST para calcular o TF Authority Score com dados reais.
-      <button className="primary" type="button" disabled={busy} onClick={() => void run({ action: "sync_site" }, "Acervo TransFAST sincronizado e score calculado.")}>
-        {busy ? "Sincronizando…" : "Sincronizar Blog TransFAST"}
+      <button className="primary" type="button" disabled={busy || Boolean(site?.syncJob && ["queued", "processing", "retry"].includes(site.syncJob.status))} onClick={() => void run({ action: "sync_site" }, "Sincronização do acervo iniciada em segundo plano.")}>
+        {site?.syncJob && ["queued", "processing", "retry"].includes(site.syncJob.status) ? "Sincronizando…" : "Sincronizar Blog TransFAST"}
       </button>
     </section>}
 
@@ -96,7 +96,7 @@ export function AuthorityOverview({
         <div><div className="eyebrow">Propriedade monitorada</div><h2>{site.name}</h2><small>{site.blogUrl}</small></div>
         <div className="inline-actions">
           <button className="ghost" type="button" onClick={() => setEditing((value) => !value)}>{editing ? "Fechar edição" : "Editar configuração"}</button>
-          <button className="primary" type="button" disabled={busy} onClick={() => void run({ action: "sync_site" }, "Acervo TransFAST sincronizado.")}>{busy ? "Sincronizando…" : "Sincronizar agora"}</button>
+          <button className="primary" type="button" disabled={busy || Boolean(site.syncJob && ["queued", "processing", "retry"].includes(site.syncJob.status))} onClick={() => void run({ action: "sync_site" }, "Sincronização do acervo iniciada em segundo plano.")}>{site.syncJob && ["queued", "processing", "retry"].includes(site.syncJob.status) ? "Sincronizando…" : "Sincronizar agora"}</button>
         </div>
       </div>
       <div className="seo-site-stats">

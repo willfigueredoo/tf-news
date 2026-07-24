@@ -24,6 +24,7 @@ const expectedTables = [
   "seo_opportunities",
   "seo_site_sources",
   "seo_sites",
+  "seo_sync_jobs",
   "seo_sync_runs",
   "sources",
   "strategic_accounts",
@@ -123,6 +124,7 @@ try {
       "seo_competitors",
       "seo_competitor_sources",
       "seo_competitor_articles",
+      "seo_sync_jobs",
       "seo_sync_runs",
       "seo_authority_snapshots",
       "seo_ai_analyses",
@@ -144,6 +146,7 @@ try {
         "seo_authority_snapshots",
         "seo_ai_analyses",
         "seo_opportunities",
+        "seo_sync_jobs",
       ]})
     order by tc.table_name, tc.constraint_name
   `;
@@ -153,6 +156,7 @@ try {
       (select count(*)::int from seo_articles) as site_articles,
       (select count(*)::int from seo_competitors where archived_at is null) as competitors,
       (select count(*)::int from seo_competitor_articles) as competitor_articles,
+      (select count(*)::int from seo_sync_jobs) as sync_jobs,
       (select count(*)::int from seo_authority_snapshots) as authority_snapshots,
       (select count(*)::int from seo_opportunities) as opportunities
   `;

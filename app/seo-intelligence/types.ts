@@ -33,6 +33,7 @@ export interface SeoSite {
   articlesSynced: number;
   discoveryMethod: string;
   sources: SeoSource[];
+  syncJob: SeoSyncJob | null;
 }
 
 export interface AuthorityContribution {
@@ -96,6 +97,7 @@ export interface Competitor {
   lastPublishedAt: string | null;
   sources: SeoSource[];
   analysis: SeoAiAnalysis | null;
+  syncJob: SeoSyncJob | null;
 }
 
 export interface CompetitorArticle {
@@ -162,6 +164,32 @@ export interface SeoSyncRun {
   errorMessage: string | null;
 }
 
+export interface SeoSyncJob {
+  id: number;
+  runId: number;
+  scope: string;
+  targetId: number;
+  trigger: string;
+  status: "queued" | "processing" | "retry" | "completed" | "failed" | string;
+  sourceType: string | null;
+  processedItems: number;
+  totalItems: number | null;
+  progressPercent: number | null;
+  found: number;
+  inserted: number;
+  updated: number;
+  ignored: number;
+  unavailable: number;
+  errors: number;
+  attempts: number;
+  lastError: string | null;
+  nextRunAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface SeoIntelligenceSnapshot {
   state: SeoModuleState;
   site: SeoSite | null;
@@ -170,6 +198,7 @@ export interface SeoIntelligenceSnapshot {
   competitorArticles: CompetitorArticle[];
   opportunities: SeoOpportunity[];
   syncRuns: SeoSyncRun[];
+  syncJobs: SeoSyncJob[];
   ai: { configured: boolean; provider: string; model: string };
   google: { searchConsole: "not_connected"; analytics4: "not_connected" };
 }
@@ -189,6 +218,7 @@ export type SeoApiAction =
   | { action: "discover_competitor"; name: string; domain: string; contentUrl?: string | null; sitemapUrl?: string | null; rssUrl?: string | null }
   | { action: "save_competitor"; name: string; domain: string; contentUrl?: string | null; notes: string; sources: Array<{ sourceType: "wordpress_rest" | "sitemap" | "rss"; url: string }> }
   | { action: "sync_competitor"; competitorId: number }
+  | { action: "process_sync_job"; jobId?: number }
   | { action: "analyze_competitor"; competitorId: number; force: boolean }
   | { action: "update_competitor"; competitorId: number; name?: string; notes?: string; active?: boolean }
   | { action: "delete_competitor"; competitorId: number; confirmation: "delete_competitor" }

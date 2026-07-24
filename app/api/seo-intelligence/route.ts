@@ -22,10 +22,13 @@ import {
   createSeoCompetitor,
   discoverCompetitorSources,
   removeSeoCompetitor,
-  syncPrimarySeoSite,
-  syncSeoCompetitor,
   updateSeoCompetitor,
 } from "../../../lib/seo-sync";
+import {
+  enqueueSeoCompetitorSync,
+  enqueueSeoSiteSync,
+  processNextSeoSyncBatch,
+} from "../../../lib/seo-sync-jobs";
 
 export const maxDuration = 60;
 
@@ -42,7 +45,7 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const limited = rateLimit(request, "seo-intelligence-write", 20, 60_000);
+  const limited = rateLimit(request, "seo-intelligence-write", 60, 60_000);
   if (limited) return limited;
 
   try {
@@ -59,9 +62,8 @@ export async function POST(request: Request) {
     const input = seoActionSchema.parse(body);
     switch (input.action) {
       case "sync_site": {
-        const sync = await syncPrimarySeoSite(db, { trigger: "manual" });
-        const intelligence = await refreshSeoIntelligence(db, config, { withAi: false });
-        return Response.json({ sync, intelligence });
+        const job = await enqueueSeoSiteSync(db, "manual");
+        return Response.json({ job }, { status: 202 });
       }
       case "refresh_intelligence": {
         const intelligence = await refreshSeoIntelligence(db, config, {
@@ -76,20 +78,20 @@ export async function POST(request: Request) {
       }
       case "save_competitor": {
         const competitor = await createSeoCompetitor(db, input);
-        let sync: Awaited<ReturnType<typeof syncSeoCompetitor>> | null = null;
-        let syncError: string | null = null;
-        try {
-          sync = await syncSeoCompetitor(db, competitor.id, { trigger: "manual" });
-          await refreshSeoIntelligence(db, config, { withAi: false });
-        } catch (error) {
-          syncError = safeMessage(error);
-        }
-        return Response.json({ competitor, sync, syncError }, { status: 201 });
+        const job = await enqueueSeoCompetitorSync(db, competitor.id, "manual");
+        return Response.json({ competitor, job }, { status: 201 });
       }
       case "sync_competitor": {
-        const sync = await syncSeoCompetitor(db, input.competitorId, { trigger: "manual" });
-        const intelligence = await refreshSeoIntelligence(db, config, { withAi: false });
-        return Response.json({ sync, intelligence });
+        const job = await enqueueSeoCompetitorSync(db, input.competitorId, "manual");
+        return Response.json({ job }, { status: 202 });
+      }
+      case "process_sync_job": {
+        const job = await processNextSeoSyncBatch(db, { jobId: input.jobId });
+        let intelligence = null;
+        if (job?.status === "completed" && (job.inserted > 0 || job.updated > 0 || job.unavailable > 0)) {
+          intelligence = await refreshSeoIntelligence(db, config, { withAi: false });
+        }
+        return Response.json({ job, intelligence });
       }
       case "analyze_competitor": {
         const analysis = await analyzeSeoCompetitor(db, config, input.competitorId, input.force);
