@@ -396,7 +396,7 @@ async function loadDataset(db: Database, siteId: number) {
     WHERE a.status = 'published' AND c.active = TRUE AND c.archived_at IS NULL
     ORDER BY a.published_at DESC NULLS LAST, a.id DESC LIMIT 2000
   `).all<CompetitorArticleRow>();
-  const news = await db.prepare("SELECT id, title, excerpt, published_at, topics, primary_icp, relevance_score FROM news_items WHERE published_at >= ? AND archived_at IS NULL AND discarded = FALSE ORDER BY relevance_score DESC, published_at DESC LIMIT 1000")
+  const news = await db.prepare("SELECT id, title, excerpt, published_at, topics, primary_icp, relevance_score FROM news_items WHERE published_at >= ? AND archived_at IS NULL AND status NOT IN ('discarded', 'archived') ORDER BY relevance_score DESC, published_at DESC LIMIT 1000")
     .bind(new Date(Date.now() - 30 * 86_400_000).toISOString()).all<NewsRow>();
   const kits = await db.prepare("SELECT id, title, primary_icp, created_at FROM editorial_kits WHERE archived_at IS NULL AND created_at >= ? ORDER BY created_at DESC LIMIT 500")
     .bind(new Date(Date.now() - 180 * 86_400_000).toISOString()).all<{ id: number; title: string; primary_icp: string; created_at: string }>();

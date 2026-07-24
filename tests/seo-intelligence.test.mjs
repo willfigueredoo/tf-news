@@ -208,13 +208,14 @@ test("engine gera oportunidades apenas a partir de sinais fornecidos e evita col
 });
 
 test("frontend usa API real, mantém estados vazios e reutiliza Fila/Biblioteca", async () => {
-  const [service, module, overview, competitors, opportunities, route] = await Promise.all([
+  const [service, module, overview, competitors, opportunities, route, engine] = await Promise.all([
     readFile(new URL("../app/seo-intelligence/services.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/seo-intelligence/seo-intelligence.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/seo-intelligence/components/authority-overview.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/seo-intelligence/components/competitors-view.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/seo-intelligence/components/opportunities-view.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/api/seo-intelligence/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/seo-engine.ts", import.meta.url), "utf8"),
   ]);
   assert.match(service, /fetch\("\/api\/seo-intelligence"/);
   assert.doesNotMatch(service, /MOCK|mockSeo/i);
@@ -225,4 +226,6 @@ test("frontend usa API real, mantém estados vazios e reutiliza Fila/Biblioteca"
   assert.match(route, /enqueueEditorialNews/);
   assert.match(route, /generateEditorialKitForNews/);
   assert.match(route, /runStructuredAi|refreshSeoIntelligence/);
+  assert.match(engine, /status NOT IN \('discarded', 'archived'\)/);
+  assert.doesNotMatch(engine, /discarded = FALSE/);
 });
