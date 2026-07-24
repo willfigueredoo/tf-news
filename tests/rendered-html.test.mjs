@@ -26,8 +26,9 @@ test("mantém a experiência principal e remove o starter", async () => {
   assert.match(app, /Visão Executiva/);
   assert.match(app, /Biblioteca/);
   assert.match(app, /Inteligência SEO/);
-  assert.match(app, /Radar/);
-  assert.match(app, /Insights/);
+  assert.doesNotMatch(app, /\{ name: "Radar"/);
+  assert.doesNotMatch(app, /\{ name: "Insights"/);
+  assert.doesNotMatch(app, /view === "Radar"|view === "Insights"/);
   assert.match(app, /EditorialIntelligence/);
   assert.match(executive, /Por que foi escolhida/);
   assert.match(executive, /Universo considerado/);

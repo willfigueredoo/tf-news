@@ -4,7 +4,7 @@ Plataforma interna de monitoramento de mercado e inteligência editorial da Tran
 
 ## TF News V2
 
-RSS/Atom real → coleta → classificação → decisão editorial → Notícia do Dia → Kit Editorial V1 (Blog SEO + WhatsApp Comercial) → Biblioteca. A IA só é chamada quando um usuário solicita o kit; o ranking, Radar e Insights funcionam por regras transparentes sobre dados persistidos. WordPress permanece uma saída opcional.
+RSS/Atom real → coleta → classificação → decisão editorial → Notícia do Dia → Kit Editorial V1 (Blog SEO + WhatsApp Comercial) → Biblioteca. A IA só é chamada quando um usuário solicita o kit; o ranking funciona por regras transparentes sobre dados persistidos. WordPress permanece uma saída opcional. Os módulos legados Radar e Insights estão arquivados e fora da navegação ativa, com o código analítico preservado para eventual reativação.
 
 ## Persistência
 
