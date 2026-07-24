@@ -5,10 +5,12 @@ import { TFNewsApp } from "./tf-news-app";
 export async function TFNewsPage({
   initialSeoTab = "overview",
   initialSeoCompetitorId = null,
+  initialSeoCreatingCompetitor = false,
   openSeoIntelligence = false,
 }: {
   initialSeoTab?: SeoTab;
   initialSeoCompetitorId?: number | null;
+  initialSeoCreatingCompetitor?: boolean;
   openSeoIntelligence?: boolean;
 } = {}) {
   const user = await getChatGPTUser();
@@ -26,5 +28,6 @@ export async function TFNewsPage({
     initialView={openSeoIntelligence ? "Inteligência SEO" : "Visão Executiva"}
     initialSeoTab={initialSeoTab}
     initialSeoCompetitorId={initialSeoCompetitorId}
+    initialSeoCreatingCompetitor={initialSeoCreatingCompetitor}
   />;
 }

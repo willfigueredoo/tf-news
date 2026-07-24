@@ -48,13 +48,14 @@ function seoPath(tab: SeoTab, competitorId: number | null = null) {
   if (tab === "opportunities") return "/seo-intelligence/opportunities";
   return "/seo-intelligence";
 }
-function routeFromPath(pathname: string): { view: View; tab: SeoTab; competitorId: number | null } {
+function routeFromPath(pathname: string): { view: View; tab: SeoTab; competitorId: number | null; creatingCompetitor: boolean } {
+  if (/^\/seo-intelligence\/competitors\/new\/?$/.test(pathname)) return { view: "Inteligência SEO", tab: "competitors", competitorId: null, creatingCompetitor: true };
   const competitorMatch = pathname.match(/^\/seo-intelligence\/competitors\/(\d+)\/?$/);
-  if (competitorMatch) return { view: "Inteligência SEO", tab: "competitors", competitorId: Number(competitorMatch[1]) };
-  if (/^\/seo-intelligence\/competitors\/?$/.test(pathname)) return { view: "Inteligência SEO", tab: "competitors", competitorId: null };
-  if (/^\/seo-intelligence\/opportunities\/?$/.test(pathname)) return { view: "Inteligência SEO", tab: "opportunities", competitorId: null };
-  if (/^\/seo-intelligence\/?$/.test(pathname)) return { view: "Inteligência SEO", tab: "overview", competitorId: null };
-  return { view: "Visão Executiva", tab: "overview", competitorId: null };
+  if (competitorMatch) return { view: "Inteligência SEO", tab: "competitors", competitorId: Number(competitorMatch[1]), creatingCompetitor: false };
+  if (/^\/seo-intelligence\/competitors\/?$/.test(pathname)) return { view: "Inteligência SEO", tab: "competitors", competitorId: null, creatingCompetitor: false };
+  if (/^\/seo-intelligence\/opportunities\/?$/.test(pathname)) return { view: "Inteligência SEO", tab: "opportunities", competitorId: null, creatingCompetitor: false };
+  if (/^\/seo-intelligence\/?$/.test(pathname)) return { view: "Inteligência SEO", tab: "overview", competitorId: null, creatingCompetitor: false };
+  return { view: "Visão Executiva", tab: "overview", competitorId: null, creatingCompetitor: false };
 }
 function pushPath(pathname: string) {
   if (window.location.pathname !== pathname) window.history.pushState({}, "", pathname);
@@ -67,6 +68,7 @@ export function TFNewsApp({
   initialView = "Visão Executiva",
   initialSeoTab = "overview",
   initialSeoCompetitorId = null,
+  initialSeoCreatingCompetitor = false,
 }: {
   userName: string;
   userEmail: string;
@@ -74,10 +76,12 @@ export function TFNewsApp({
   initialView?: View;
   initialSeoTab?: SeoTab;
   initialSeoCompetitorId?: number | null;
+  initialSeoCreatingCompetitor?: boolean;
 }) {
   const [view, setView] = useState<View>(initialView);
   const [seoTab, setSeoTab] = useState<SeoTab>(initialSeoTab);
   const [seoCompetitorId, setSeoCompetitorId] = useState<number | null>(initialSeoCompetitorId);
+  const [seoCreatingCompetitor, setSeoCreatingCompetitor] = useState(initialSeoCreatingCompetitor);
   useSeoSyncWorker();
   const [globalIcp, setGlobalIcp] = useState("Todos os ICPs");
   const [news, setNews] = useState<News[]>([]);
@@ -129,6 +133,7 @@ export function TFNewsApp({
       setView(route.view);
       setSeoTab(route.tab);
       setSeoCompetitorId(route.competitorId);
+      setSeoCreatingCompetitor(route.creatingCompetitor);
       window.scrollTo({ top: 0, behavior: "auto" });
     }
     window.addEventListener("popstate", handlePopState);
@@ -145,6 +150,7 @@ export function TFNewsApp({
   function chooseView(next: View) {
     setView(next);
     setSeoCompetitorId(null);
+    setSeoCreatingCompetitor(false);
     if (next === "Inteligência SEO") {
       setSeoTab("overview");
       pushPath(seoPath("overview"));
@@ -157,6 +163,7 @@ export function TFNewsApp({
     setView("Inteligência SEO");
     setSeoTab(next);
     setSeoCompetitorId(null);
+    setSeoCreatingCompetitor(false);
     pushPath(seoPath(next));
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
@@ -164,11 +171,21 @@ export function TFNewsApp({
     setView("Inteligência SEO");
     setSeoTab("competitors");
     setSeoCompetitorId(id);
+    setSeoCreatingCompetitor(false);
     pushPath(seoPath("competitors", id));
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+  function addSeoCompetitor() {
+    setView("Inteligência SEO");
+    setSeoTab("competitors");
+    setSeoCompetitorId(null);
+    setSeoCreatingCompetitor(true);
+    pushPath("/seo-intelligence/competitors/new");
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
   function backToSeoCompetitors() {
     setSeoCompetitorId(null);
+    setSeoCreatingCompetitor(false);
     setSeoTab("competitors");
     pushPath(seoPath("competitors"));
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -310,8 +327,10 @@ export function TFNewsApp({
           onOpenQueue={openQueueItem}
           tab={seoTab}
           competitorId={seoCompetitorId}
+          creatingCompetitor={seoCreatingCompetitor}
           onTabChange={chooseSeoTab}
           onOpenCompetitor={openSeoCompetitor}
+          onAddCompetitor={addSeoCompetitor}
           onBackToCompetitors={backToSeoCompetitors}
         />}
         {view === "Radar" && <EditorialIntelligence mode="radar" wordpressBaseUrl={wordpressBaseUrl} onMonitor={() => chooseView("Monitoramento")} notify={notify} />}

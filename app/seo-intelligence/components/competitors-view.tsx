@@ -12,25 +12,18 @@ import type {
 
 export function CompetitorsView({
   competitors,
-  busy,
-  execute,
-  notify,
   onOpenCompetitor,
+  onAddCompetitor,
 }: {
   competitors: Competitor[];
-  busy: boolean;
-  execute: <T>(action: SeoApiAction) => Promise<T>;
-  notify: (message: string) => void;
   onOpenCompetitor: (id: number) => void;
+  onAddCompetitor: () => void;
 }) {
-  const [adding, setAdding] = useState(false);
-  useEscapeKey(() => setAdding(false), adding && !busy);
-
   return <div className="seo-view">
     <section className="card seo-competitor-table" aria-label="Produção editorial dos concorrentes">
       <div className="panel-title">
         <div><h2>Transportadoras monitoradas</h2><small>Somente concorrentes cadastrados e confirmados pela TransFAST.</small></div>
-        <button className="primary" type="button" onClick={() => setAdding(true)}>Adicionar concorrente</button>
+        <button className="primary" type="button" onClick={onAddCompetitor}>Adicionar concorrente</button>
       </div>
       {competitors.length ? <>
         <div className="seo-table-head"><span>Transportadora</span><span>Artigos · 30 dias</span><span>Última publicação</span><span>Status</span></div>
@@ -45,8 +38,6 @@ export function CompetitorsView({
         Adicione apenas transportadoras reais que a TransFAST deseja acompanhar. Nenhum concorrente é criado automaticamente.
       </div>}
     </section>
-
-    {adding && <CompetitorDiscovery busy={busy} execute={execute} notify={notify} onClose={() => setAdding(false)} />}
   </div>;
 }
 
@@ -165,11 +156,11 @@ export function CompetitorDetailView({
   </section>;
 }
 
-function CompetitorDiscovery({ busy, execute, notify, onClose }: {
+export function CompetitorCreateView({ busy, execute, notify, onBack }: {
   busy: boolean;
   execute: <T>(action: SeoApiAction) => Promise<T>;
   notify: (message: string) => void;
-  onClose: () => void;
+  onBack: () => void;
 }) {
   const [name, setName] = useState("");
   const [domain, setDomain] = useState("");
@@ -213,38 +204,63 @@ function CompetitorDiscovery({ busy, execute, notify, onClose }: {
         sources: confirmed.map((source) => ({ sourceType: source.sourceType, url: source.url })),
       });
       notify("Concorrente cadastrado. A sincronização foi iniciada em segundo plano.");
-      onClose();
+      onBack();
     } catch (error) {
       notify(error instanceof Error ? error.message : "Não foi possível cadastrar o concorrente.");
     }
   }
 
-  return <div className="detail-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}>
-    <aside className="detail-drawer seo-competitor-drawer" role="dialog" aria-modal="true" aria-labelledby="add-competitor-title">
-      <div className="detail-head"><div><div className="eyebrow">Nova fonte competitiva</div><h2 id="add-competitor-title">Adicionar transportadora</h2><span className="content-meta">O sistema localiza fontes por código. Nada é cadastrado sem sua confirmação.</span></div><button className="ghost" type="button" onClick={onClose} disabled={busy}>Fechar</button></div>
-      <form className="seo-config-form single" onSubmit={discover}>
+  return <section className="seo-competitor-create" aria-labelledby="add-competitor-title">
+    <button className="seo-competitor-back" type="button" onClick={onBack} disabled={busy}>← Voltar para Concorrentes</button>
+
+    <header className="card seo-competitor-create-head">
+      <div>
+        <div className="eyebrow">Nova fonte competitiva</div>
+        <h1 id="add-competitor-title">Adicionar transportadora</h1>
+        <p>Informe o site oficial. O TF News localiza as fontes editoriais e só inicia a sincronização após sua confirmação.</p>
+      </div>
+      <span className="seo-create-step">{discovered ? "2 de 2 · Revisar fontes" : "1 de 2 · Identificar fonte"}</span>
+    </header>
+
+    <div className="seo-competitor-create-layout">
+      <form className="card seo-config-form single seo-competitor-create-form" onSubmit={discover}>
+        <div className="panel-title">
+          <div><h2>Dados do concorrente</h2><small>Use os endereços oficiais da transportadora.</small></div>
+        </div>
         <label><span className="label">Nome da transportadora</span><input className="field" value={name} onChange={(event) => setName(event.target.value)} required /></label>
         <label><span className="label">Domínio oficial</span><input className="field" type="url" value={domain} onChange={(event) => setDomain(event.target.value)} placeholder="https://exemplo.com.br" required /></label>
         <label><span className="label">Blog ou central de notícias (opcional)</span><input className="field" type="url" value={contentUrl} onChange={(event) => setContentUrl(event.target.value)} /></label>
         <label><span className="label">Observações</span><textarea className="field" value={notes} onChange={(event) => setNotes(event.target.value)} rows={3} /></label>
-        <button className="primary" type="submit" disabled={busy}>{busy ? "Localizando…" : discovered ? "Localizar novamente" : "Localizar fontes"}</button>
+        <div className="inline-actions"><button className="ghost" type="button" onClick={onBack} disabled={busy}>Cancelar</button><button className="primary" type="submit" disabled={busy}>{busy ? "Localizando…" : discovered ? "Localizar novamente" : "Localizar fontes"}</button></div>
       </form>
-      {discovered && <section className="seo-discovered-sources">
-        <div className="panel-title"><h2>Revisar fontes encontradas</h2><small>{sources.length} resultado(s) válido(s)</small></div>
-        {sources.map((source) => <label className="seo-source-choice" key={source.url}>
-          <input type="checkbox" checked={selectedUrls.has(source.url)} onChange={() => setSelectedUrls((current) => {
-            const next = new Set(current);
-            if (next.has(source.url)) next.delete(source.url);
-            else next.add(source.url);
-            return next;
-          })} />
-          <span><strong>{sourceLabel(source.sourceType)} · {source.itemCount} item(ns) detectado(s)</strong><small>{source.url}</small><em>{source.detail}</em></span>
-        </label>)}
-        {!sources.length && <div className="empty compact">Fonte indisponível para coleta automática. Não tentaremos contornar bloqueios, paywalls ou autenticação.</div>}
-        <div className="inline-actions"><button className="ghost" type="button" onClick={onClose}>Cancelar</button><button className="primary" type="button" disabled={busy || !selectedUrls.size} onClick={() => void confirm()}>Confirmar e sincronizar</button></div>
-      </section>}
-    </aside>
-  </div>;
+
+      <section className="card seo-discovered-sources" aria-live="polite">
+        <div className="panel-title">
+          <div><h2>{discovered ? "Revisar fontes encontradas" : "Validação da fonte"}</h2><small>{discovered ? `${sources.length} resultado(s) válido(s)` : "A descoberta começa após preencher os dados."}</small></div>
+        </div>
+        {discovered ? <>
+          {sources.map((source) => <label className="seo-source-choice" key={source.url}>
+            <input type="checkbox" checked={selectedUrls.has(source.url)} onChange={() => setSelectedUrls((current) => {
+              const next = new Set(current);
+              if (next.has(source.url)) next.delete(source.url);
+              else next.add(source.url);
+              return next;
+            })} />
+            <span><strong>{sourceLabel(source.sourceType)} · {source.itemCount} item(ns) detectado(s)</strong><small>{source.url}</small><em>{source.detail}</em></span>
+          </label>)}
+          {!sources.length && <div className="empty compact">Fonte indisponível para coleta automática. Não tentaremos contornar bloqueios, paywalls ou autenticação.</div>}
+          <div className="inline-actions"><button className="primary" type="button" disabled={busy || !selectedUrls.size} onClick={() => void confirm()}>Confirmar e sincronizar</button></div>
+        </> : <div className="seo-create-guidance">
+          <span aria-hidden="true">01</span>
+          <div><strong>Localização segura</strong><p>O TF News procura RSS, sitemap ou WordPress REST sem contornar bloqueios e sem cadastrar fontes silenciosamente.</p></div>
+          <span aria-hidden="true">02</span>
+          <div><strong>Confirmação explícita</strong><p>Você revisa os endereços encontrados antes de iniciar a sincronização incremental.</p></div>
+          <span aria-hidden="true">03</span>
+          <div><strong>Processamento em segundo plano</strong><p>Após a confirmação, a coleta continua por lotes enquanto você utiliza outras áreas do sistema.</p></div>
+        </div>}
+      </section>
+    </div>
+  </section>;
 }
 
 function SyncProgress({ job }: { job: SeoSyncJob }) {

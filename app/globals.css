@@ -588,8 +588,23 @@ textarea.field { min-height: 96px; resize: vertical; line-height: 1.55; }
 .seo-competitor-row > b { color: var(--text-strong); font-size: 20px; letter-spacing: -.04em; }
 .seo-competitor-row .tag { font-style: normal; }
 .seo-competitor-detail { width: 100%; display: grid; gap: 18px; overflow: visible; animation: fade-up .2s ease both; }
+.seo-competitor-create { width: 100%; display: grid; gap: 18px; overflow: visible; animation: fade-up .2s ease both; }
 .seo-competitor-back { width: fit-content; min-height: 38px; border: 0; padding: 0 4px; background: transparent; color: var(--muted); font-size: 10px; font-weight: 680; transition: color var(--transition-base), transform var(--transition-base); }
 .seo-competitor-back:hover { color: var(--text-strong); transform: translateX(-2px); }
+.seo-competitor-create-head { min-height: 228px; display: flex; align-items: flex-end; justify-content: space-between; gap: 28px; padding: 34px; overflow: visible; }
+.seo-competitor-create-head h1 { max-width: 880px; margin: 11px 0 10px; color: var(--text-strong); font-family: var(--font-family-editorial); font-size: clamp(38px, 5vw, 62px); line-height: .98; letter-spacing: -.06em; }
+.seo-competitor-create-head p { max-width: 720px; margin: 0; color: var(--muted); font-size: 10px; line-height: 1.6; }
+.seo-create-step { flex: 0 0 auto; display: inline-flex; align-items: center; min-height: 32px; padding: 0 11px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface-soft); color: var(--muted); font-size: 8px; font-weight: 720; letter-spacing: .04em; text-transform: uppercase; }
+.seo-competitor-create-layout { display: grid; grid-template-columns: minmax(320px, .8fr) minmax(0, 1.2fr); gap: 18px; align-items: start; }
+.seo-competitor-create-form { margin: 0; padding: 28px; border-top: 0; }
+.seo-competitor-create-form > .panel-title { margin-bottom: 4px; }
+.seo-competitor-create .seo-discovered-sources { min-height: 100%; gap: 12px; margin: 0; padding: 28px; overflow: visible; }
+.seo-create-guidance { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 18px 14px; margin-top: 12px; }
+.seo-create-guidance > span { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 50%; background: var(--surface-soft); color: var(--accent); font-size: 8px; font-weight: 760; }
+.seo-create-guidance > div { padding: 3px 0 18px; border-bottom: 1px solid var(--border); }
+.seo-create-guidance > div:last-child { border-bottom: 0; }
+.seo-create-guidance strong { color: var(--text-strong); font-size: 10px; }
+.seo-create-guidance p { margin: 6px 0 0; color: var(--muted); font-size: 9px; line-height: 1.55; }
 .seo-competitor-detail-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 28px; padding: 30px; overflow: visible; }
 .seo-competitor-detail-head h1 { margin: 9px 0 4px; color: var(--text-strong); font-family: var(--font-family-editorial); font-size: clamp(34px, 5vw, 58px); line-height: 1; letter-spacing: -.055em; }
 .seo-competitor-detail-head .seo-competitor-actions { max-width: 620px; justify-content: flex-end; margin: 0; }
@@ -604,8 +619,6 @@ textarea.field { min-height: 96px; resize: vertical; line-height: 1.55; }
 .seo-topic-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; background: var(--border); }
 .seo-topic-actions > div { min-height: 84px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 15px; background: var(--surface); }
 .seo-topic-actions strong { font-size: 10px; }
-.seo-competitor-drawer { width: min(760px, 96vw); }
-.seo-competitor-drawer .detail-head h2 { margin: 8px 0 4px; color: var(--text-strong); font-size: 30px; letter-spacing: -.045em; }
 .seo-competitor-summary { margin: 28px 0; padding: 23px; border-left: 2px solid var(--accent); background: var(--surface-soft); }
 .seo-competitor-summary small { color: var(--accent); font-size: 8px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
 .seo-competitor-summary p { margin: 10px 0 0; color: var(--text); font-family: var(--font-family-editorial); font-size: 17px; line-height: 1.55; }
@@ -816,6 +829,7 @@ textarea.field { min-height: 96px; resize: vertical; line-height: 1.55; }
   .seo-score-column { min-height: 270px; }
   .seo-unexplored { grid-template-columns: 1fr; }
   .seo-competitor-detail-grid { grid-template-columns: 1fr; }
+  .seo-competitor-create-layout { grid-template-columns: 1fr; }
   .seo-site-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .app-shell { grid-template-columns: 78px minmax(0, 1fr); }
   .sidebar { padding: 22px 10px 18px; }
@@ -874,6 +888,9 @@ textarea.field { min-height: 96px; resize: vertical; line-height: 1.55; }
   .theme-toggle { width: 36px; height: 36px; }
   .content { padding: 25px 14px 100px; }
   .seo-competitor-detail-head { align-items: flex-start; flex-direction: column; padding: 22px 18px; }
+  .seo-competitor-create-head { min-height: 190px; align-items: flex-start; flex-direction: column; padding: 24px 20px; }
+  .seo-competitor-create-head h1 { font-size: clamp(36px, 12vw, 50px); }
+  .seo-competitor-create-form, .seo-competitor-create .seo-discovered-sources { padding: 20px 18px; }
   .seo-competitor-detail-head .seo-competitor-actions { width: 100%; justify-content: flex-start; }
   .dashboard-hero, .section-head { align-items: flex-start; flex-direction: column; }
   .dashboard-hero { min-height: 170px; padding-top: 16px; }

@@ -1,7 +1,7 @@
 "use client";
 
 import { AuthorityOverview } from "./components/authority-overview";
-import { CompetitorDetailView, CompetitorsView } from "./components/competitors-view";
+import { CompetitorCreateView, CompetitorDetailView, CompetitorsView } from "./components/competitors-view";
 import { OpportunitiesView } from "./components/opportunities-view";
 import { useSeoIntelligence } from "./hooks/use-seo-intelligence";
 import type { SeoApiAction } from "./types";
@@ -21,8 +21,10 @@ export function SeoIntelligence({
   onOpenQueue,
   tab,
   competitorId,
+  creatingCompetitor,
   onTabChange,
   onOpenCompetitor,
+  onAddCompetitor,
   onBackToCompetitors,
 }: {
   globalIcp: string;
@@ -31,8 +33,10 @@ export function SeoIntelligence({
   onOpenQueue: (id: number) => void;
   tab: SeoTab;
   competitorId: number | null;
+  creatingCompetitor: boolean;
   onTabChange: (tab: SeoTab) => void;
   onOpenCompetitor: (id: number) => void;
+  onAddCompetitor: () => void;
   onBackToCompetitors: () => void;
 }) {
   const { data, loading, busyAction, error, reload, execute } = useSeoIntelligence();
@@ -41,6 +45,10 @@ export function SeoIntelligence({
 
   async function run<T>(action: SeoApiAction) {
     return execute<T>(action);
+  }
+
+  if (creatingCompetitor) {
+    return <CompetitorCreateView busy={busy} execute={run} notify={notify} onBack={onBackToCompetitors} />;
   }
 
   if (competitorId !== null) {
@@ -77,7 +85,7 @@ export function SeoIntelligence({
       : error && !data ? <div className="card empty"><strong>Não foi possível carregar a Inteligência SEO</strong>{error}<button className="secondary" onClick={() => void reload()}>Tentar novamente</button></div>
         : data && <div role="tabpanel" aria-label={active.label} className="seo-tab-panel" aria-busy={busy}>
           {tab === "overview" && <AuthorityOverview authority={data.authority} site={data.site} state={data.state} aiConfigured={data.ai.configured} busy={busy} execute={run} notify={notify} />}
-          {tab === "competitors" && <CompetitorsView competitors={data.competitors} busy={busy} execute={run} notify={notify} onOpenCompetitor={onOpenCompetitor} />}
+          {tab === "competitors" && <CompetitorsView competitors={data.competitors} onOpenCompetitor={onOpenCompetitor} onAddCompetitor={onAddCompetitor} />}
           {tab === "opportunities" && <OpportunitiesView key={globalIcp} opportunities={data.opportunities} globalIcp={globalIcp} busy={busy} execute={run} notify={notify} onOpenKit={onOpenKit} onOpenQueue={onOpenQueue} />}
         </div>}
   </>;

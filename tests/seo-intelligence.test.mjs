@@ -360,6 +360,26 @@ test("concorrentes usam navegação master-detail com rota dedicada e scroll da 
   assert.doesNotMatch(styles, /\.seo-competitor-detail[^}]*overflow-y:\s*auto/);
 });
 
+test("cadastro de concorrente usa rota própria em tela cheia sem drawer ou scroll interno", async () => {
+  const [app, module, competitors, createRoute, styles] = await Promise.all([
+    readFile(new URL("../app/tf-news-app.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/seo-intelligence/seo-intelligence.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/seo-intelligence/components/competitors-view.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/seo-intelligence/competitors/new/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(app, /\/seo-intelligence\/competitors\/new/);
+  assert.match(app, /creatingCompetitor:\s*true/);
+  assert.match(module, /CompetitorCreateView/);
+  assert.match(competitors, /seo-competitor-create/);
+  assert.match(competitors, /← Voltar para Concorrentes/);
+  assert.doesNotMatch(competitors, /seo-competitor-drawer|detail-backdrop/);
+  assert.match(createRoute, /initialSeoCreatingCompetitor/);
+  assert.match(styles, /\.seo-competitor-create\s*\{[^}]*overflow:\s*visible/);
+  assert.doesNotMatch(styles, /\.seo-competitor-create[^}]*overflow-y:\s*auto/);
+});
+
 function wordpressPost(id) {
   return {
     id,
