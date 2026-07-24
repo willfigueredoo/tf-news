@@ -3,8 +3,9 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 test("mantém a experiência principal e remove o starter", async () => {
-  const [page, app, executive, editorial, monitoring, sourceManager, history, layout, css, packageJson, viteConfig, vercelConfig, vercelOutputScript, readyRoute] = await Promise.all([
+  const [page, pageShell, app, executive, editorial, monitoring, sourceManager, history, layout, css, packageJson, viteConfig, vercelConfig, vercelOutputScript, readyRoute] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/tf-news-page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/tf-news-app.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/executive-dashboard.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/editorial-intelligence.tsx", import.meta.url), "utf8"),
@@ -19,7 +20,8 @@ test("mantém a experiência principal e remove o starter", async () => {
     readFile(new URL("../scripts/ensure-vercel-output.mjs", import.meta.url), "utf8"),
     readFile(new URL("../app/api/ready/route.ts", import.meta.url), "utf8"),
   ]);
-  assert.match(page, /TFNewsApp/);
+  assert.match(page, /TFNewsPage/);
+  assert.match(pageShell, /TFNewsApp/);
   assert.match(app, /Monitoramento/);
   assert.match(app, /Visão Executiva/);
   assert.match(app, /Biblioteca/);

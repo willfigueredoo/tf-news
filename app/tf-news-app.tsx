@@ -7,7 +7,7 @@ import { EditorialQueue } from "./editorial-queue";
 import { ExecutiveDashboard } from "./executive-dashboard";
 import { MonitoringWorkspace } from "./monitoring-workspace";
 import { OperationsHistory } from "./operations-history";
-import { SeoIntelligence } from "./seo-intelligence/seo-intelligence";
+import { SeoIntelligence, type SeoTab } from "./seo-intelligence/seo-intelligence";
 import { useSeoSyncWorker } from "./seo-intelligence/hooks/use-seo-sync-worker";
 import { SourceManager } from "./source-manager";
 
@@ -42,9 +42,42 @@ function initials(name: string) { return name.split(/\s+/).slice(0, 2).map((part
 function currentTime() { return new Intl.DateTimeFormat("pt-BR", { hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date()); }
 function relativeDate(value: string) { const hours = Math.max(0, Math.round((Date.now() - new Date(value).getTime()) / 3_600_000)); return hours < 1 ? "agora" : hours < 24 ? `há ${hours}h` : `há ${Math.round(hours / 24)}d`; }
 function impactLabel(value: News["logisticsImpact"]) { return value === "high" ? "Alto" : value === "medium" ? "Médio" : "Baixo"; }
+function seoPath(tab: SeoTab, competitorId: number | null = null) {
+  if (competitorId !== null) return `/seo-intelligence/competitors/${competitorId}`;
+  if (tab === "competitors") return "/seo-intelligence/competitors";
+  if (tab === "opportunities") return "/seo-intelligence/opportunities";
+  return "/seo-intelligence";
+}
+function routeFromPath(pathname: string): { view: View; tab: SeoTab; competitorId: number | null } {
+  const competitorMatch = pathname.match(/^\/seo-intelligence\/competitors\/(\d+)\/?$/);
+  if (competitorMatch) return { view: "Inteligência SEO", tab: "competitors", competitorId: Number(competitorMatch[1]) };
+  if (/^\/seo-intelligence\/competitors\/?$/.test(pathname)) return { view: "Inteligência SEO", tab: "competitors", competitorId: null };
+  if (/^\/seo-intelligence\/opportunities\/?$/.test(pathname)) return { view: "Inteligência SEO", tab: "opportunities", competitorId: null };
+  if (/^\/seo-intelligence\/?$/.test(pathname)) return { view: "Inteligência SEO", tab: "overview", competitorId: null };
+  return { view: "Visão Executiva", tab: "overview", competitorId: null };
+}
+function pushPath(pathname: string) {
+  if (window.location.pathname !== pathname) window.history.pushState({}, "", pathname);
+}
 
-export function TFNewsApp({ userName, userEmail, initialUpdatedAt }: { userName: string; userEmail: string; initialUpdatedAt: string }) {
-  const [view, setView] = useState<View>("Visão Executiva");
+export function TFNewsApp({
+  userName,
+  userEmail,
+  initialUpdatedAt,
+  initialView = "Visão Executiva",
+  initialSeoTab = "overview",
+  initialSeoCompetitorId = null,
+}: {
+  userName: string;
+  userEmail: string;
+  initialUpdatedAt: string;
+  initialView?: View;
+  initialSeoTab?: SeoTab;
+  initialSeoCompetitorId?: number | null;
+}) {
+  const [view, setView] = useState<View>(initialView);
+  const [seoTab, setSeoTab] = useState<SeoTab>(initialSeoTab);
+  const [seoCompetitorId, setSeoCompetitorId] = useState<number | null>(initialSeoCompetitorId);
   useSeoSyncWorker();
   const [globalIcp, setGlobalIcp] = useState("Todos os ICPs");
   const [news, setNews] = useState<News[]>([]);
@@ -90,6 +123,17 @@ export function TFNewsApp({ userName, userEmail, initialUpdatedAt }: { userName:
   }, []);
 
   useEffect(() => { const timer = window.setTimeout(() => { void refreshAll(); }, 0); return () => window.clearTimeout(timer); }, [refreshAll]);
+  useEffect(() => {
+    function handlePopState() {
+      const route = routeFromPath(window.location.pathname);
+      setView(route.view);
+      setSeoTab(route.tab);
+      setSeoCompetitorId(route.competitorId);
+      window.scrollTo({ top: 0, behavior: "auto" });
+    }
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
 
   const filteredNews = useMemo(() => news.filter((item) => {
     const matchesIcp = globalIcp === "Todos os ICPs" || item.icps.includes(globalIcp) || item.primaryIcp === globalIcp;
@@ -98,7 +142,37 @@ export function TFNewsApp({ userName, userEmail, initialUpdatedAt }: { userName:
   }), [news, globalIcp, search]);
   const liveSelected = [...selected].filter((id) => news.some((item) => item.id === id));
 
-  function chooseView(next: View) { setView(next); window.scrollTo({ top: 0, behavior: "smooth" }); }
+  function chooseView(next: View) {
+    setView(next);
+    setSeoCompetitorId(null);
+    if (next === "Inteligência SEO") {
+      setSeoTab("overview");
+      pushPath(seoPath("overview"));
+    } else if (window.location.pathname.startsWith("/seo-intelligence")) {
+      pushPath("/");
+    }
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+  function chooseSeoTab(next: SeoTab) {
+    setView("Inteligência SEO");
+    setSeoTab(next);
+    setSeoCompetitorId(null);
+    pushPath(seoPath(next));
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+  function openSeoCompetitor(id: number) {
+    setView("Inteligência SEO");
+    setSeoTab("competitors");
+    setSeoCompetitorId(id);
+    pushPath(seoPath("competitors", id));
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+  function backToSeoCompetitors() {
+    setSeoCompetitorId(null);
+    setSeoTab("competitors");
+    pushPath(seoPath("competitors"));
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
   function toggleTheme() { const root = document.documentElement; const next = root.dataset.theme === "dark" ? "light" : "dark"; root.dataset.theme = next; root.style.colorScheme = next; window.localStorage.setItem("tf-news-theme", next); }
   function toggleNews(id: number) { setSelected((current) => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; }); }
   async function startContent() {
@@ -229,7 +303,17 @@ export function TFNewsApp({ userName, userEmail, initialUpdatedAt }: { userName:
         {view === "Monitoramento" && <MonitoringWorkspace news={filteredNews} sources={sources} selected={selected} search={search} setSearch={setSearch} toggleNews={toggleNews} toggleAll={(ids) => setSelected(new Set(ids))} startContent={() => void startContent()} startQueue={() => void addToEditorialQueue()} refresh={refreshAll} notify={notify} busy={busy} setBusy={setBusy} aiConfigured={Boolean(aiStatus?.configured)} />}
         {view === "Fila Editorial" && <EditorialQueue initialQueueId={queueFocusId} onOpenKit={openLibraryKit} notify={notify} />}
         {view === "Biblioteca" && <EditorialIntelligence mode="library" wordpressBaseUrl={wordpressBaseUrl} initialKitId={libraryKitId} onMonitor={() => chooseView("Monitoramento")} notify={notify} />}
-        {view === "Inteligência SEO" && <SeoIntelligence globalIcp={globalIcp} notify={notify} onOpenKit={openLibraryKit} onOpenQueue={openQueueItem} />}
+        {view === "Inteligência SEO" && <SeoIntelligence
+          globalIcp={globalIcp}
+          notify={notify}
+          onOpenKit={openLibraryKit}
+          onOpenQueue={openQueueItem}
+          tab={seoTab}
+          competitorId={seoCompetitorId}
+          onTabChange={chooseSeoTab}
+          onOpenCompetitor={openSeoCompetitor}
+          onBackToCompetitors={backToSeoCompetitors}
+        />}
         {view === "Radar" && <EditorialIntelligence mode="radar" wordpressBaseUrl={wordpressBaseUrl} onMonitor={() => chooseView("Monitoramento")} notify={notify} />}
         {view === "Insights" && <EditorialIntelligence mode="insights" wordpressBaseUrl={wordpressBaseUrl} onMonitor={() => chooseView("Monitoramento")} notify={notify} />}
         {view === "Criar Conteúdo" && <CreateContent selectedCount={liveSelected.length} brief={brief} article={article} setArticle={setArticle} objective={objective} setObjective={setObjective} keyword={keyword} setKeyword={setKeyword} busy={busy} aiConfigured={Boolean(aiStatus?.configured)} generateBrief={generateBrief} generateArticle={generateArticle} saveArticle={saveArticle} onChooseNews={() => chooseView("Monitoramento")} />}

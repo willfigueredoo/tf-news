@@ -338,6 +338,28 @@ test("worker durável retorna 202, usa lease recuperável e frontend acompanha s
   assert.match(service, /readErrorMessage/);
 });
 
+test("concorrentes usam navegação master-detail com rota dedicada e scroll da página", async () => {
+  const [app, module, competitors, detailRoute, masterRoute, styles] = await Promise.all([
+    readFile(new URL("../app/tf-news-app.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/seo-intelligence/seo-intelligence.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/seo-intelligence/components/competitors-view.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/seo-intelligence/competitors/[id]/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/seo-intelligence/competitors/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(app, /\/seo-intelligence\/competitors\/\$\{competitorId\}/);
+  assert.match(app, /window\.addEventListener\("popstate"/);
+  assert.match(module, /CompetitorDetailView/);
+  assert.match(competitors, /← Voltar para Concorrentes/);
+  assert.match(competitors, /onOpenCompetitor\(competitor\.id\)/);
+  assert.doesNotMatch(competitors, /selectedId|Fechar análise do concorrente/);
+  assert.match(detailRoute, /initialSeoCompetitorId=/);
+  assert.match(masterRoute, /initialSeoTab="competitors"/);
+  assert.match(styles, /\.seo-competitor-detail\s*\{[^}]*overflow:\s*visible/);
+  assert.doesNotMatch(styles, /\.seo-competitor-detail[^}]*overflow-y:\s*auto/);
+});
+
 function wordpressPost(id) {
   return {
     id,
