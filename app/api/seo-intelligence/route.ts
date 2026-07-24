@@ -114,7 +114,7 @@ export async function POST(request: Request) {
         return Response.json({ deleted: true, competitorId: input.competitorId });
       }
       case "opportunity": {
-        return runOpportunityAction(db, config, input.opportunityId, input.operation);
+        return await runOpportunityAction(db, config, input.opportunityId, input.operation);
       }
     }
   } catch (error) {

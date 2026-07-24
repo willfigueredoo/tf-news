@@ -225,6 +225,7 @@ test("frontend usa API real, mantém estados vazios e reutiliza Fila/Biblioteca"
   assert.match(opportunities, /Ainda não há oportunidades suficientes/);
   assert.match(route, /enqueueEditorialNews/);
   assert.match(route, /generateEditorialKitForNews/);
+  assert.match(route, /return await runOpportunityAction/);
   assert.match(route, /runStructuredAi|refreshSeoIntelligence/);
   assert.match(engine, /status NOT IN \('discarded', 'archived'\)/);
   assert.doesNotMatch(engine, /discarded = FALSE/);
