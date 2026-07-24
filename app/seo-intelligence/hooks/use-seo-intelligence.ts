@@ -1,12 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { mockSeoIntelligenceService, type SeoIntelligenceService } from "../services.ts";
-import type { SeoIntelligenceSnapshot } from "../types.ts";
+import { seoIntelligenceService, type SeoIntelligenceService } from "../services.ts";
+import type { SeoApiAction, SeoIntelligenceSnapshot } from "../types.ts";
 
-export function useSeoIntelligence(service: SeoIntelligenceService = mockSeoIntelligenceService) {
+export function useSeoIntelligence(service: SeoIntelligenceService = seoIntelligenceService) {
   const [data, setData] = useState<SeoIntelligenceSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
+  const [busyAction, setBusyAction] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
@@ -21,10 +22,26 @@ export function useSeoIntelligence(service: SeoIntelligenceService = mockSeoInte
     }
   }, [service]);
 
+  const execute = useCallback(async <T,>(action: SeoApiAction, options: { reload?: boolean } = {}) => {
+    setBusyAction(action.action);
+    setError(null);
+    try {
+      const result = await service.execute<T>(action);
+      if (options.reload !== false) setData(await service.loadSnapshot());
+      return result;
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : "A ação de Inteligência SEO não foi concluída.";
+      setError(message);
+      throw cause;
+    } finally {
+      setBusyAction(null);
+    }
+  }, [service]);
+
   useEffect(() => {
     const timer = window.setTimeout(() => { void reload(); }, 0);
     return () => window.clearTimeout(timer);
   }, [reload]);
 
-  return { data, loading, error, reload };
+  return { data, loading, busyAction, error, reload, execute };
 }

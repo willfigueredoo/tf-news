@@ -15,6 +15,16 @@ const expectedTables = [
   "job_logs",
   "news_items",
   "news_item_history",
+  "seo_ai_analyses",
+  "seo_articles",
+  "seo_authority_snapshots",
+  "seo_competitor_articles",
+  "seo_competitor_sources",
+  "seo_competitors",
+  "seo_opportunities",
+  "seo_site_sources",
+  "seo_sites",
+  "seo_sync_runs",
   "sources",
   "strategic_accounts",
   "wordpress_publications",
@@ -103,6 +113,49 @@ try {
       and tc.table_name = any(${["editorial_sources", "editorial_kit_sources"]})
     order by tc.table_name, tc.constraint_name
   `;
+  const seoIndexes = await sql`
+    select tablename, indexname
+    from pg_indexes
+    where schemaname = 'public' and tablename = any(${[
+      "seo_sites",
+      "seo_site_sources",
+      "seo_articles",
+      "seo_competitors",
+      "seo_competitor_sources",
+      "seo_competitor_articles",
+      "seo_sync_runs",
+      "seo_authority_snapshots",
+      "seo_ai_analyses",
+      "seo_opportunities",
+    ]})
+    order by tablename, indexname
+  `;
+  const seoForeignKeys = await sql`
+    select tc.table_name, tc.constraint_name, rc.delete_rule, rc.update_rule
+    from information_schema.table_constraints tc
+    join information_schema.referential_constraints rc
+      on rc.constraint_schema = tc.constraint_schema and rc.constraint_name = tc.constraint_name
+    where tc.constraint_schema = 'public' and tc.constraint_type = 'FOREIGN KEY'
+      and tc.table_name = any(${[
+        "seo_site_sources",
+        "seo_articles",
+        "seo_competitor_sources",
+        "seo_competitor_articles",
+        "seo_authority_snapshots",
+        "seo_ai_analyses",
+        "seo_opportunities",
+      ]})
+    order by tc.table_name, tc.constraint_name
+  `;
+  const [seoMetrics] = await sql`
+    select
+      (select count(*)::int from seo_sites) as sites,
+      (select count(*)::int from seo_articles) as site_articles,
+      (select count(*)::int from seo_competitors where archived_at is null) as competitors,
+      (select count(*)::int from seo_competitor_articles) as competitor_articles,
+      (select count(*)::int from seo_authority_snapshots) as authority_snapshots,
+      (select count(*)::int from seo_opportunities) as opportunities
+  `;
 
   console.log(JSON.stringify({
     tables: created,
@@ -123,6 +176,11 @@ try {
     editorialQueue: {
       indexes: editorialQueueIndexes.map((row) => row.indexname),
       foreignKeys: editorialQueueForeignKeys,
+    },
+    seoIntelligence: {
+      metrics: seoMetrics,
+      indexes: seoIndexes,
+      foreignKeys: seoForeignKeys,
     },
   }, null, 2));
 } finally {

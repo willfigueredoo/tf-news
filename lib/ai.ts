@@ -60,7 +60,16 @@ export function aiConfigured(config: AiConfig) {
 export async function runStructuredAi<T>(options: {
   db: AiDb;
   config: AiConfig;
-  operation: "classification" | "coherence" | "brief" | "article" | "editorial-kit";
+  operation:
+    | "classification"
+    | "coherence"
+    | "brief"
+    | "article"
+    | "editorial-kit"
+    | "seo_authority_summary"
+    | "seo_competitor_analysis"
+    | "seo_opportunity_ranking"
+    | "seo_topic_classification";
   schemaName: string;
   schema: ZodType<T>;
   system: string;

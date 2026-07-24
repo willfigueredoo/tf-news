@@ -43,6 +43,13 @@
       "when": 1784653202247,
       "tag": "0005_nostalgic_the_call",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1784836018752,
+      "tag": "0006_tough_vargas",
+      "breakpoints": true
     }
   ]
 }
