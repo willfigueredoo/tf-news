@@ -65,6 +65,8 @@ export function SeoIntelligence({
       busy={busy}
       execute={run}
       notify={notify}
+      onOpenKit={onOpenKit}
+      onOpenQueue={onOpenQueue}
       onBack={onBackToCompetitors}
     /> : null;
   }

@@ -6,6 +6,8 @@ Plataforma interna de monitoramento de mercado e inteligência editorial da Tran
 
 RSS/Atom real → coleta → classificação → decisão editorial → Notícia do Dia → Kit Editorial V1 (Blog SEO + WhatsApp Comercial) → Biblioteca. A IA só é chamada quando um usuário solicita o kit; o ranking funciona por regras transparentes sobre dados persistidos. WordPress permanece uma saída opcional. Os módulos legados Radar e Insights estão arquivados e fora da navegação ativa, com o código analítico preservado para eventual reativação.
 
+Na Inteligência SEO, artigos concorrentes podem originar uma pauta ou um Kit original. O artigo concorrente é tratado somente como referência de oportunidade: o sistema exige uma notícia independente relacionada no Monitoramento, reaproveita o workflow oficial da Fila e da Biblioteca e bloqueia títulos ou trechos excessivamente semelhantes antes da persistência.
+
 ## Persistência
 
 O ambiente hospedado usa PostgreSQL gerenciado, acessado por `DATABASE_URL`, com Drizzle ORM e o driver `postgres.js`. A configuração recomendada na Vercel é Neon pelo Marketplace, usando a URL com pooling. Não há binding D1, API REST da Cloudflare nem comando Wrangler no fluxo de execução ou deploy.

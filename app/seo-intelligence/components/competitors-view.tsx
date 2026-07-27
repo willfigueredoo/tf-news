@@ -48,6 +48,8 @@ export function CompetitorDetailView({
   busy,
   execute,
   notify,
+  onOpenKit,
+  onOpenQueue,
   onBack,
 }: {
   competitorId: number;
@@ -56,9 +58,12 @@ export function CompetitorDetailView({
   busy: boolean;
   execute: <T>(action: SeoApiAction) => Promise<T>;
   notify: (message: string) => void;
+  onOpenKit: (id: number) => void;
+  onOpenQueue: (id: number) => void;
   onBack: () => void;
 }) {
   const [deletePending, setDeletePending] = useState(false);
+  const [editorialAction, setEditorialAction] = useState<{ articleId: number; operation: "create_queue" | "generate_kit" } | null>(null);
   const selected = competitors.find((competitor) => competitor.id === competitorId) ?? null;
   const selectedArticles = useMemo(
     () => articles.filter((article) => article.competitorId === competitorId),
@@ -74,6 +79,33 @@ export function CompetitorDetailView({
     } catch (error) {
       notify(error instanceof Error ? error.message : "A ação não foi concluída.");
       return false;
+    }
+  }
+
+  async function runArticleEditorialAction(article: CompetitorArticle, operation: "create_queue" | "generate_kit") {
+    setEditorialAction({ articleId: article.id, operation });
+    try {
+      const result = await execute<{
+        queue?: { id: number };
+        kit?: { id: number };
+        support?: { independentSources?: Array<{ source: string }> };
+      }>({ action: "competitor_article", articleId: article.id, operation });
+      const sourceCount = result.support?.independentSources?.length ?? 0;
+      if (operation === "create_queue" && result.queue?.id) {
+        notify(`Pauta inspirada criada com ${sourceCount} fonte(s) independente(s).`);
+        onOpenQueue(result.queue.id);
+        return;
+      }
+      if (operation === "generate_kit" && result.kit?.id) {
+        notify(`Kit original gerado com ${sourceCount} fonte(s) independente(s) e salvo na Biblioteca.`);
+        onOpenKit(result.kit.id);
+        return;
+      }
+      throw new Error("O fluxo editorial foi concluído sem retornar a pauta ou o Kit esperado.");
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Não foi possível preparar um conteúdo original a partir desta oportunidade.");
+    } finally {
+      setEditorialAction(null);
     }
   }
 
@@ -130,12 +162,26 @@ export function CompetitorDetailView({
     {selected.lastError && <div className="notice error">Fonte indisponível para coleta automática: {selected.lastError}</div>}
 
     <section className="card seo-competitor-articles">
-      <div className="panel-title"><h2>Artigos recentes</h2><small>{selectedArticles.length} item(ns) carregado(s)</small></div>
+      <div className="panel-title"><div><h2>Artigos recentes</h2><small>{selectedArticles.length} item(ns) carregado(s)</small></div><span className="content-meta">A referência concorrente orienta a pauta; os fatos vêm do Monitoramento.</span></div>
       <div className="seo-article-list">{selectedArticles.map((article) => <article key={article.id}>
         <div className="content-meta">{article.publishedAt ? formatDate(article.publishedAt) : "Data não informada"} · {article.topics.join(" · ") || "Tema não classificado"}</div>
         <h3>{article.title}</h3>
         {article.excerpt && <p>{article.excerpt}</p>}
-        <div className="inline-actions wrap"><a className="ghost" href={article.url} target="_blank" rel="noopener noreferrer">Abrir fonte ↗</a></div>
+        <div className="inline-actions wrap">
+          <a className="ghost" href={article.url} target="_blank" rel="noopener noreferrer">Abrir fonte ↗</a>
+          <button
+            className="secondary"
+            type="button"
+            disabled={busy || editorialAction !== null}
+            onClick={() => void runArticleEditorialAction(article, "create_queue")}
+          >{editorialAction?.articleId === article.id && editorialAction.operation === "create_queue" ? "Criando pauta…" : "Criar pauta inspirada"}</button>
+          <button
+            className="primary"
+            type="button"
+            disabled={busy || editorialAction !== null}
+            onClick={() => void runArticleEditorialAction(article, "generate_kit")}
+          >{editorialAction?.articleId === article.id && editorialAction.operation === "generate_kit" ? "Gerando Kit…" : "Gerar Kit original"}</button>
+        </div>
       </article>)}</div>
       {!selectedArticles.length && <div className="empty compact">Nenhum artigo concorrente sincronizado ainda.</div>}
     </section>

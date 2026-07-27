@@ -23,6 +23,8 @@ import {
   deduplicateArticles,
   normalizeWordPressPost,
 } from "../lib/seo-sync.ts";
+import { rankSupportingNews } from "../lib/competitor-editorial.ts";
+import { assertCompetitiveOriginality } from "../lib/editorial-kit.ts";
 
 test("migration SEO é aditiva, cria as tabelas e não cadastra concorrentes fictícios", async () => {
   const migration = await readFile(new URL("../drizzle/0006_tough_vargas.sql", import.meta.url), "utf8");
@@ -378,6 +380,122 @@ test("cadastro de concorrente usa rota própria em tela cheia sem drawer ou scro
   assert.match(createRoute, /initialSeoCreatingCompetitor/);
   assert.match(styles, /\.seo-competitor-create\s*\{[^}]*overflow:\s*visible/);
   assert.doesNotMatch(styles, /\.seo-competitor-create[^}]*overflow-y:\s*auto/);
+});
+
+test("pauta competitiva seleciona fonte independente relacionada e ignora o próprio concorrente", () => {
+  const reference = {
+    id: 31,
+    competitorId: 7,
+    competitorName: "Transportadora Exemplo",
+    competitorDomain: "https://concorrente.example",
+    title: "Como transportar agroquímicos com segurança",
+    url: "https://concorrente.example/blog/agroquimicos",
+    excerpt: "Operações com defensivos exigem documentação, controle de risco e planejamento logístico.",
+    content: "O transporte rodoviário de agroquímicos exige cuidados operacionais durante toda a jornada.",
+    topics: ["agroquímicos", "transporte rodoviário"],
+    categories: ["logística"],
+    tags: ["segurança"],
+    publishedAt: "2026-07-20T10:00:00.000Z",
+  };
+  const common = {
+    collectedAt: "2026-07-20T11:00:00.000Z",
+    primaryIcp: "Agronegócio",
+    secondaryIcps: [],
+    region: "Brasil",
+    logisticsImpact: "high",
+    status: "new",
+    sourceReliability: 90,
+  };
+  const ranked = rankSupportingNews(reference, [
+    {
+      ...common,
+      id: 11,
+      title: "Novas regras reforçam segurança no transporte de agroquímicos",
+      excerpt: "Órgão informa requisitos para documentação e transporte rodoviário.",
+      content: "A operação logística com defensivos deve observar regras de segurança e documentação.",
+      sourceName: "Fonte oficial",
+      originalUrl: "https://gov.example/regras-agroquimicos",
+      publishedAt: "2026-07-21T10:00:00.000Z",
+      topics: ["agroquímicos", "transporte rodoviário"],
+      relevanceScore: 94,
+    },
+    {
+      ...common,
+      id: 12,
+      title: "Como transportar agroquímicos com segurança",
+      excerpt: "Mesmo conteúdo do concorrente.",
+      content: "Transporte rodoviário de agroquímicos.",
+      sourceName: "Transportadora Exemplo",
+      originalUrl: "https://concorrente.example/noticias/agroquimicos",
+      publishedAt: "2026-07-21T09:00:00.000Z",
+      topics: ["agroquímicos"],
+      relevanceScore: 99,
+    },
+    {
+      ...common,
+      id: 13,
+      title: "Mercado de tintas decorativas cresce",
+      excerpt: "Notícia sem relação com o tema.",
+      content: "Fabricantes analisam cores e varejo.",
+      sourceName: "Portal setorial",
+      originalUrl: "https://portal.example/tintas",
+      publishedAt: "2026-07-21T08:00:00.000Z",
+      topics: ["tintas"],
+      relevanceScore: 80,
+    },
+  ]);
+  assert.deepEqual(ranked.map((item) => item.news.id), [11]);
+  assert.ok(ranked[0].matchedTerms.includes("agroquimicos"));
+});
+
+test("originalidade competitiva bloqueia cópia extensa e aceita abordagem própria", () => {
+  const reference = {
+    title: "Como transportar agroquímicos com segurança",
+    excerpt: "A operação exige controle documental.",
+    content: "O transporte de produtos perigosos exige planejamento detalhado controle documental treinamento da equipe monitoramento constante das rotas e resposta rápida a incidentes durante toda a operação.",
+  };
+  const payload = {
+    blog: {
+      title: "Segurança logística no transporte de defensivos agrícolas",
+      seoTitle: "Segurança no transporte de defensivos agrícolas",
+      slug: "seguranca-transporte-defensivos",
+      metaDescription: "Conteúdo original.",
+      primaryKeyword: "transporte de defensivos",
+      secondaryKeywords: ["logística"],
+      excerpt: "Análise técnica original sobre a operação.",
+      introduction: "A gestão logística de cargas reguladas depende de processos integrados, rastreabilidade e capacitação operacional.",
+      blocks: [{ type: "section", heading: "Controles que sustentam a operação", content: "Empresas devem estruturar rotinas próprias a partir das exigências confirmadas por fontes independentes." }],
+      conclusion: "A conformidade depende da combinação entre processo, pessoas e informação confiável.",
+      html: "<p>Conteúdo original</p>",
+      category: "Logística",
+      tags: ["Segurança"],
+      sources: [{ name: "Fonte oficial", url: "https://gov.example/fonte" }],
+    },
+    whatsapp: { text: "Mensagem original para contextualizar o assunto com equipes comerciais." },
+  };
+  assert.doesNotThrow(() => assertCompetitiveOriginality(payload, reference));
+  const copied = structuredClone(payload);
+  copied.blog.blocks[0].content = reference.content;
+  assert.throws(() => assertCompetitiveOriginality(copied, reference), /excessivamente próximo/i);
+});
+
+test("artigos concorrentes reutilizam Fila e Biblioteca com fonte independente e sem paráfrase", async () => {
+  const [route, component, kit, workflow] = await Promise.all([
+    readFile(new URL("../app/api/seo-intelligence/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/seo-intelligence/components/competitors-view.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../lib/editorial-kit.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/editorial-workflow.ts", import.meta.url), "utf8"),
+  ]);
+  assert.match(component, /Criar pauta inspirada/);
+  assert.match(component, /Gerar Kit original/);
+  assert.match(route, /prepareCompetitiveEditorialSupport/);
+  assert.match(route, /seo_competitor_article:/);
+  assert.match(route, /enqueueEditorialNews/);
+  assert.match(route, /generateEditorialKitForNews/);
+  assert.match(route, /competitiveReference:\s*support\.reference/);
+  assert.match(kit, /Não copie, parafraseie de perto/);
+  assert.match(kit, /assertCompetitiveOriginality/);
+  assert.match(workflow, /status = 'analysis'.*editorial_kit_id IS NULL/s);
 });
 
 function wordpressPost(id) {

@@ -2,6 +2,11 @@ import { ZodError } from "zod";
 import { getRuntimeDb } from "../../../db/runtime";
 import { AiProviderRequestError } from "../../../lib/ai";
 import { rateLimit } from "../../../lib/api-security";
+import {
+  CompetitorEditorialSupportError,
+  prepareCompetitiveEditorialSupport,
+} from "../../../lib/competitor-editorial";
+import { createEditorialKit } from "../../../lib/editorial-kit";
 import { isEditorialDeleteAuthorized } from "../../../lib/editorial-kit-delete";
 import {
   EditorialWorkflowConflictError,
@@ -118,10 +123,57 @@ export async function POST(request: Request) {
       case "opportunity": {
         return await runOpportunityAction(db, config, input.opportunityId, input.operation);
       }
+      case "competitor_article": {
+        return await runCompetitorArticleAction(db, config, input.articleId, input.operation);
+      }
     }
   } catch (error) {
     return seoError(error, 400);
   }
+}
+
+async function runCompetitorArticleAction(
+  db: Awaited<ReturnType<typeof getRuntimeDb>>,
+  config: ReturnType<typeof getAiConfig>,
+  articleId: number,
+  operation: "create_queue" | "generate_kit",
+) {
+  const support = await prepareCompetitiveEditorialSupport(db, articleId);
+  const origin = `seo_competitor_article:${support.reference.id}`;
+  const supportSummary = {
+    competitorArticle: {
+      id: support.reference.id,
+      title: support.reference.title,
+      url: support.reference.url,
+      competitor: support.reference.competitorName,
+    },
+    independentSources: [support.primaryDecision, ...support.supportingDecisions].map((decision) => ({
+      newsId: decision.id,
+      title: decision.title,
+      source: decision.sourceName,
+      url: decision.originalUrl,
+    })),
+    matchedTerms: support.matchedTerms,
+  };
+
+  if (operation === "create_queue") {
+    const queue = await enqueueEditorialNews(db, support.primaryDecision.id, origin);
+    return Response.json({ queue, support: supportSummary, navigateTo: "queue" }, { status: 201 });
+  }
+
+  const generated = await generateEditorialKitForNews(db, support.primaryDecision.id, {
+    origin,
+    createKit: (database, aiConfig, decision, options) => createEditorialKit(database, aiConfig, decision, {
+      ...options,
+      competitiveReference: support.reference,
+      supportingDecisions: support.supportingDecisions,
+    }),
+  });
+  return Response.json({
+    ...generated,
+    support: supportSummary,
+    navigateTo: "library",
+  }, { status: 201 });
 }
 
 async function runOpportunityAction(
@@ -192,6 +244,12 @@ function seoError(error: unknown, fallbackStatus = 500) {
       error: error.message,
       code: error.conflict.code,
       conflict: error.conflict,
+    }, { status: 409 });
+  }
+  if (error instanceof CompetitorEditorialSupportError) {
+    return Response.json({
+      error: error.message,
+      code: error.code,
     }, { status: 409 });
   }
   if (error instanceof ZodError) {

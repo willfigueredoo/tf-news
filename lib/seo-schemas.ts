@@ -101,6 +101,11 @@ export const seoActionSchema = z.discriminatedUnion("action", [
     opportunityId: z.number().int().positive(),
     operation: z.enum(["review", "discard", "reanalyze", "create_queue", "generate_kit"]),
   }),
+  z.object({
+    action: z.literal("competitor_article"),
+    articleId: z.number().int().positive(),
+    operation: z.enum(["create_queue", "generate_kit"]),
+  }),
 ]);
 
 export type SeoAuthorityAnalysis = z.infer<typeof seoAuthorityAnalysisSchema>;

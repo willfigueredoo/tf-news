@@ -4,11 +4,20 @@ import { editorialKitPayloadSchema, editorialKitRawPayloadSchema, type Editorial
 import { applyPermanentEditorialPolicy, EDITORIAL_TECHNICAL_EDITOR_PROMPT } from "./editorial-policy.ts";
 import type { Database } from "../db/runtime.ts";
 import type { EditorialDecision } from "./editorial-intelligence.ts";
+import type { CompetitorEditorialReference } from "./competitor-editorial.ts";
 
 export const EDITORIAL_KIT_TIMEOUT_MS = 54_000;
 export const EDITORIAL_KIT_MAX_OUTPUT_TOKENS = 1_800;
 
-type GenerationOptions = { fetchImpl?: typeof fetch; now?: Date; phaseLogger?: AiPhaseLogger; delayImpl?: (ms: number) => Promise<void>; queueId?: number };
+export type GenerationOptions = {
+  fetchImpl?: typeof fetch;
+  now?: Date;
+  phaseLogger?: AiPhaseLogger;
+  delayImpl?: (ms: number) => Promise<void>;
+  queueId?: number;
+  competitiveReference?: CompetitorEditorialReference;
+  supportingDecisions?: EditorialDecision[];
+};
 type CompatibilityContext = {
   newsId: number;
   title: string;
@@ -109,6 +118,13 @@ export async function generateEditorialKit(db: Database, config: AiConfig, decis
       "A metaDescription deve ter de 120 a 160 caracteres e incluir a palavra-chave principal naturalmente.",
       "O WhatsApp deve ter de 450 a 650 caracteres, linguagem simples e humana, resumo do fato, impacto no segmento, conexão logística natural e CTA discreto, sem tom promocional excessivo.",
       "Não use jargões internos como score, ICP selecionado ou impacto moderado no conteúdo público.",
+      ...(options.competitiveReference ? [
+        "A referência competitiva serve somente para identificar tema, lacuna e possível ângulo editorial.",
+        "Não copie, parafraseie de perto, traduza ou reproduza o título, frases, sequência argumentativa, exemplos ou estrutura do concorrente.",
+        "Crie uma arquitetura, redação e abordagem originais na linguagem técnica e institucional do TF News.",
+        "Não trate afirmações da referência competitiva como fatos confirmados. Toda afirmação factual deve estar sustentada pelas fontes independentes fornecidas.",
+        "Não mencione o concorrente no texto público, salvo quando ele também for parte factual da notícia independente.",
+      ] : []),
       "Retorne somente JSON válido que obedeça ao schema solicitado.",
     ].join(" "),
     user: JSON.stringify({
@@ -127,6 +143,23 @@ export async function generateEditorialKit(db: Database, config: AiConfig, decis
         region: decision.region,
         logisticsImpactClassification: decision.logisticsImpact,
       },
+      independentSupportingSources: (options.supportingDecisions ?? []).map((source) => ({
+        title: source.title,
+        name: source.sourceName,
+        url: source.originalUrl,
+        publishedAt: source.publishedAt,
+        excerpt: source.excerpt,
+        availableContent: source.content.slice(0, 2_500),
+      })),
+      competitiveReference: options.competitiveReference ? {
+        title: options.competitiveReference.title,
+        competitor: options.competitiveReference.competitorName,
+        url: options.competitiveReference.url,
+        excerpt: options.competitiveReference.excerpt.slice(0, 1_500),
+        availableContent: options.competitiveReference.content.slice(0, 3_000),
+        topics: options.competitiveReference.topics,
+        instruction: "Use somente como referência de oportunidade. Não copie nem trate como comprovação factual.",
+      } : null,
     }),
     maxOutputTokens: EDITORIAL_KIT_MAX_OUTPUT_TOKENS,
     fetchImpl: options.fetchImpl,
@@ -144,7 +177,11 @@ export async function generateEditorialKit(db: Database, config: AiConfig, decis
 
   phaseLogger({ phase: "normalization_start", operation: "editorial-kit", provider: config.provider, model: config.model, elapsedMs: Date.now() - started });
   const normalized = normalizeGeneratedEditorialKitPayload(response.data);
-  normalized.blog.sources = [traceableDecisionSource(decision)];
+  normalized.blog.sources = uniqueSources([
+    traceableDecisionSource(decision),
+    ...(options.supportingDecisions ?? []).map(traceableDecisionSource),
+  ], 6);
+  if (options.competitiveReference) assertCompetitiveOriginality(normalized, options.competitiveReference);
   normalized.blog.html = applyPermanentEditorialPolicy(normalized.blog.html, normalized.blog.sources);
   phaseLogger({ phase: "normalization_end", operation: "editorial-kit", provider: config.provider, model: config.model, elapsedMs: Date.now() - started, status: "success" });
   phaseLogger({ phase: "zod_final_validation_start", operation: "editorial-kit", provider: config.provider, model: config.model, elapsedMs: Date.now() - started });
@@ -160,6 +197,31 @@ export async function generateEditorialKit(db: Database, config: AiConfig, decis
   const sourceIsTraceable = payload.blog.sources.some((source) => source.url === decision.originalUrl);
   if (!sourceIsTraceable) throw new Error("O Kit Editorial não preservou a fonte original rastreável.");
   return payload;
+}
+
+export function assertCompetitiveOriginality(payload: EditorialKitPayload, reference: Pick<CompetitorEditorialReference, "title" | "excerpt" | "content">) {
+  const referenceText = `${reference.title} ${reference.excerpt} ${reference.content}`;
+  const generatedText = [
+    payload.blog.title,
+    payload.blog.seoTitle,
+    payload.blog.excerpt,
+    payload.blog.introduction,
+    ...payload.blog.blocks.flatMap((block) => [block.heading, block.content]),
+    payload.blog.conclusion,
+    payload.whatsapp.text,
+  ].join(" ");
+  const referenceTokens = originalityTokens(referenceText);
+  const generatedTokens = originalityTokens(generatedText);
+  if (referenceTokens.length < 10 || generatedTokens.length < 10) return;
+
+  const sharedSequence = longestSharedSequence(referenceTokens, generatedTokens, 12);
+  if (sharedSequence >= 12) {
+    throw new Error("O conteúdo gerado ficou excessivamente próximo da redação concorrente e não foi salvo.");
+  }
+  const titleSimilarity = jaccard(originalityTokens(reference.title), originalityTokens(payload.blog.title));
+  if (titleSimilarity >= .82) {
+    throw new Error("O título gerado ficou excessivamente semelhante ao artigo concorrente e não foi salvo.");
+  }
 }
 
 export function normalizeGeneratedEditorialKitPayload(payload: EditorialKitRawPayload): EditorialKitPayload {
@@ -502,4 +564,30 @@ function traceableDecisionSource(decision: EditorialDecision): EditorialKitPaylo
     authorityLevel: decision.sourceAuthorityLevel ?? (decision.sourceReliability >= 85 ? "high" : decision.sourceReliability >= 60 ? "medium" : "low"),
     publishedAt: decision.publishedAt,
   };
+}
+
+function originalityTokens(value: string) {
+  return value.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLocaleLowerCase("pt-BR")
+    .replace(/<[^>]*>/g, " ").replace(/[^\p{L}\p{N}]+/gu, " ").split(/\s+/).filter(Boolean);
+}
+
+function longestSharedSequence(reference: string[], generated: string[], stopAt: number) {
+  if (reference.length < stopAt || generated.length < stopAt) return 0;
+  const referenceSequences = new Set<string>();
+  for (let index = 0; index <= reference.length - stopAt; index += 1) {
+    referenceSequences.add(reference.slice(index, index + stopAt).join(" "));
+  }
+  for (let index = 0; index <= generated.length - stopAt; index += 1) {
+    if (referenceSequences.has(generated.slice(index, index + stopAt).join(" "))) return stopAt;
+  }
+  return 0;
+}
+
+function jaccard(left: string[], right: string[]) {
+  const leftSet = new Set(left);
+  const rightSet = new Set(right);
+  if (!leftSet.size || !rightSet.size) return 0;
+  const shared = [...leftSet].filter((token) => rightSet.has(token)).length;
+  const union = new Set([...leftSet, ...rightSet]).size;
+  return union ? shared / union : 0;
 }

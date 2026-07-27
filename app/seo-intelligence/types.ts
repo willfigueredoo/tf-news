@@ -222,4 +222,5 @@ export type SeoApiAction =
   | { action: "analyze_competitor"; competitorId: number; force: boolean }
   | { action: "update_competitor"; competitorId: number; name?: string; notes?: string; active?: boolean }
   | { action: "delete_competitor"; competitorId: number; confirmation: "delete_competitor" }
-  | { action: "opportunity"; opportunityId: number; operation: "review" | "discard" | "reanalyze" | "create_queue" | "generate_kit" };
+  | { action: "opportunity"; opportunityId: number; operation: "review" | "discard" | "reanalyze" | "create_queue" | "generate_kit" }
+  | { action: "competitor_article"; articleId: number; operation: "create_queue" | "generate_kit" };
