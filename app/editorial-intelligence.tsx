@@ -65,6 +65,9 @@ type Kit = {
   archivedAt: string | null;
   createdAt: string;
   updatedAt: string;
+  originType?: "monitoring" | "competitive";
+  competitorArticleTitle?: string | null;
+  competitorName?: string | null;
 };
 
 type KitPayload = {
@@ -88,6 +91,7 @@ type KitPayload = {
 };
 
 type LibraryFilter = "all" | "favorites" | "pinned" | "active" | "archived";
+type LibraryOrigin = "monitoring" | "competitive";
 type LibrarySort = "updated" | "score" | "title";
 type LibraryView = "cards" | "list";
 
@@ -228,14 +232,15 @@ export function EditorialIntelligence({ mode, wordpressBaseUrl, initialKitId, on
     onConfirm={() => void deleteKit()}
   />;
 
-  if (mode === "library") return <><Library kits={kits} pending={libraryPending} onOpen={setSelectedKit} onUpdate={updateKit} onDeleteRequest={setDeleteTarget} selectedDrawer={drawer} />{deleteDialog}</>;
+  if (mode === "library") return <><Library kits={kits} pending={libraryPending} initialKitId={initialKitId} onOpen={setSelectedKit} onUpdate={updateKit} onDeleteRequest={setDeleteTarget} selectedDrawer={drawer} />{deleteDialog}</>;
   if (mode === "radar") return <><Radar intelligence={intelligence} />{deleteDialog}</>;
   return <><Insights intelligence={intelligence} />{deleteDialog}</>;
 }
 
-function Library({ kits, pending, onOpen, onUpdate, onDeleteRequest, selectedDrawer }: {
+function Library({ kits, pending, initialKitId, onOpen, onUpdate, onDeleteRequest, selectedDrawer }: {
   kits: Kit[];
   pending: boolean;
+  initialKitId?: number | null;
   onOpen: (kit: Kit) => void;
   onUpdate: (id: number, action: "archive" | "restore" | "duplicate") => void;
   onDeleteRequest: (kit: Kit) => void;
@@ -244,6 +249,9 @@ function Library({ kits, pending, onOpen, onUpdate, onDeleteRequest, selectedDra
   const [search, setSearch] = useState("");
   const deferredSearch = useDeferredValue(search);
   const [filter, setFilter] = useState<LibraryFilter>("all");
+  const [originFilter, setOriginFilter] = useState<LibraryOrigin>(() => (
+    kits.find((kit) => kit.id === initialKitId)?.originType === "competitive" ? "competitive" : "monitoring"
+  ));
   const [sort, setSort] = useState<LibrarySort>("updated");
   const [view, setView] = useState<LibraryView>("cards");
   const [preferences, setPreferences] = useState<{ favorites: number[]; pinned: number[] }>({ favorites: [], pinned: [] });
@@ -276,7 +284,8 @@ function Library({ kits, pending, onOpen, onUpdate, onDeleteRequest, selectedDra
         || (filter === "pinned" && preferences.pinned.includes(kit.id))
         || (filter === "active" && !kit.archivedAt)
         || (filter === "archived" && Boolean(kit.archivedAt));
-      return matchesSearch && matchesFilter;
+      const matchesOrigin = originFilter === "competitive" ? kit.originType === "competitive" : kit.originType !== "competitive";
+      return matchesSearch && matchesFilter && matchesOrigin;
     }).sort((a, b) => {
       const pinDifference = Number(preferences.pinned.includes(b.id)) - Number(preferences.pinned.includes(a.id));
       if (pinDifference) return pinDifference;
@@ -284,17 +293,25 @@ function Library({ kits, pending, onOpen, onUpdate, onDeleteRequest, selectedDra
       if (sort === "title") return a.title.localeCompare(b.title, "pt-BR");
       return Date.parse(b.updatedAt) - Date.parse(a.updatedAt);
     });
-  }, [deferredSearch, filter, kits, preferences, sort]);
+  }, [deferredSearch, filter, kits, originFilter, preferences, sort]);
 
   function togglePreference(kind: "favorites" | "pinned", id: number) {
     setPreferences((current) => ({ ...current, [kind]: current[kind].includes(id) ? current[kind].filter((item) => item !== id) : [...current[kind], id] }));
   }
 
   const quickFilters: Array<[LibraryFilter, string]> = [["all", "Todos"], ["favorites", "Favoritos"], ["pinned", "Fixados"], ["active", "Ativos"], ["archived", "Arquivados"]];
+  const originCounts = {
+    monitoring: kits.filter((kit) => kit.originType !== "competitive").length,
+    competitive: kits.filter((kit) => kit.originType === "competitive").length,
+  };
   return <>
     <div className="section-head">
       <div><div className="eyebrow">Acervo estratégico</div><h1>Biblioteca Editorial</h1><p className="subtitle">Encontre, revise e reutilize seus conteúdos sem sair do fluxo editorial.</p></div>
       <div className="library-count"><strong>{filtered.length}</strong><span>kits encontrados</span></div>
+    </div>
+    <div className="editorial-origin-tabs" role="tablist" aria-label="Origem dos Kits">
+      <button type="button" role="tab" aria-selected={originFilter === "monitoring"} className={originFilter === "monitoring" ? "active" : ""} onClick={() => setOriginFilter("monitoring")}><strong>Monitoramento</strong><span>Kits criados a partir das notícias monitoradas</span><i>{originCounts.monitoring}</i></button>
+      <button type="button" role="tab" aria-selected={originFilter === "competitive"} className={originFilter === "competitive" ? "active" : ""} onClick={() => setOriginFilter("competitive")}><strong>Inteligência Competitiva</strong><span>Kits inspirados em artigos de concorrentes</span><i>{originCounts.competitive}</i></button>
     </div>
     {pending && <div className="notice">A Biblioteca ainda não está disponível. Nenhum dado fictício será exibido.</div>}
     <div className="card library-toolbar">
@@ -332,7 +349,7 @@ function LibraryItem({ kit, favorite, pinned, onFavorite, onPin, onOpen, onUpdat
 }) {
   return <article className={`card library-item ${kit.archivedAt ? "archived" : ""}`}>
     <div className="library-item-top">
-      <div className="library-badges"><span className="status draft">Blog + WhatsApp</span>{kit.archivedAt && <span className="status archived">Arquivado</span>}</div>
+      <div className="library-badges"><span className="status draft">Blog + WhatsApp</span>{kit.originType === "competitive" && <span className="status relevant">Inspirado em {kit.competitorName ?? "concorrente"}</span>}{kit.archivedAt && <span className="status archived">Arquivado</span>}</div>
       <div className="preference-actions"><button className={favorite ? "active" : ""} onClick={onFavorite} aria-label={favorite ? "Remover dos favoritos" : "Favoritar"} aria-pressed={favorite}>★</button><button className={pinned ? "active" : ""} onClick={onPin} aria-label={pinned ? "Desafixar" : "Fixar"} aria-pressed={pinned}>⌖</button></div>
     </div>
     <button className="library-title" onClick={onOpen}>{kit.title}</button>

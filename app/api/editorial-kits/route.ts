@@ -6,12 +6,33 @@ import { deleteEditorialKit, isEditorialDeleteAuthorized } from "../../../lib/ed
 import { AiProviderRequestError } from "../../../lib/ai";
 import { EditorialWorkflowConflictError, generateEditorialKitForNews } from "../../../lib/editorial-workflow";
 
-type KitRow = { id: number; news_item_id: number; title: string; primary_icp: string; editorial_score: number; provider: string; model: string; payload: string; status: string; archived_at: string | null; created_at: string; updated_at: string };
+type KitRow = {
+  id: number; news_item_id: number; title: string; primary_icp: string; editorial_score: number; provider: string; model: string;
+  payload: string; status: string; archived_at: string | null; created_at: string; updated_at: string;
+  origin: string | null; competitor_article_title: string | null; competitor_name: string | null;
+};
 
 export async function GET() {
   try {
     const db = await getRuntimeDb();
-    const result = await db.prepare("SELECT id, news_item_id, title, primary_icp, editorial_score, provider, model, payload, status, archived_at, created_at, updated_at FROM editorial_kits ORDER BY updated_at DESC LIMIT 200").all<KitRow>();
+    const result = await db.prepare(`
+      SELECT kit.id, kit.news_item_id, kit.title, kit.primary_icp, kit.editorial_score,
+        kit.provider, kit.model, kit.payload, kit.status, kit.archived_at, kit.created_at, kit.updated_at,
+        journey.origin, competitor_article.title AS competitor_article_title, competitor.name AS competitor_name
+      FROM editorial_kits kit
+      LEFT JOIN LATERAL (
+        SELECT queue.origin
+        FROM editorial_queue queue
+        WHERE queue.editorial_kit_id = kit.id
+        ORDER BY queue.updated_at DESC, queue.id DESC
+        LIMIT 1
+      ) journey ON TRUE
+      LEFT JOIN seo_competitor_articles competitor_article
+        ON journey.origin = CONCAT('seo_competitor_article:', competitor_article.id::text)
+      LEFT JOIN seo_competitors competitor ON competitor.id = competitor_article.competitor_id
+      ORDER BY kit.updated_at DESC
+      LIMIT 200
+    `).all<KitRow>();
     return Response.json({ kits: rowsOf(result).map(toClientKit) });
   } catch (error) { return tableAwareError(error); }
 }
@@ -69,7 +90,24 @@ export async function DELETE(request: Request) {
 
 function toClientKit(row: KitRow) {
   const payload = normalizeEditorialKitPayload(JSON.parse(row.payload), { newsId: row.news_item_id, title: row.title, primaryIcp: row.primary_icp, editorialScore: row.editorial_score, createdAt: row.created_at });
-  return { id: row.id, newsItemId: row.news_item_id, title: row.title, primaryIcp: row.primary_icp, editorialScore: row.editorial_score, provider: row.provider, model: row.model, payload, status: row.status, archivedAt: row.archived_at, createdAt: row.created_at, updatedAt: row.updated_at };
+  const competitive = Boolean(row.origin?.startsWith("seo_competitor_article:"));
+  return {
+    id: row.id,
+    newsItemId: row.news_item_id,
+    title: row.title,
+    primaryIcp: row.primary_icp,
+    editorialScore: row.editorial_score,
+    provider: row.provider,
+    model: row.model,
+    payload,
+    status: row.status,
+    archivedAt: row.archived_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    originType: competitive ? "competitive" : "monitoring",
+    competitorArticleTitle: row.competitor_article_title,
+    competitorName: row.competitor_name,
+  };
 }
 
 function tableAwareError(error: unknown, fallbackStatus = 500) {

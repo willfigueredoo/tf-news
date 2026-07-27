@@ -512,6 +512,15 @@ textarea.field { min-height: 96px; resize: vertical; line-height: 1.55; }
 .queue-item.highlight { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); box-shadow: 0 0 0 3px var(--accent-soft); }
 .queue-item h2 { margin: 6px 0 9px; color: var(--text-strong); font-size: 16px; line-height: 1.35; }
 .queue-item > .inline-actions { grid-column: 1 / -1; }
+.editorial-origin-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; overflow: hidden; margin-bottom: 18px; border: 1px solid var(--border); border-radius: 12px; background: var(--border); }
+.editorial-origin-tabs button { position: relative; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 14px; padding: 17px 19px; border: 0; border-radius: 0; background: var(--surface); color: var(--muted); text-align: left; transition: background-color .18s ease, color .18s ease; }
+.editorial-origin-tabs button:hover { background: var(--surface-soft); color: var(--text); }
+.editorial-origin-tabs button.active { background: color-mix(in srgb, var(--accent) 5%, var(--surface)); color: var(--text-strong); box-shadow: inset 0 -2px var(--accent); }
+.editorial-origin-tabs strong { font-size: 11px; }
+.editorial-origin-tabs span { grid-column: 1; font-size: 8px; font-weight: 500; }
+.editorial-origin-tabs i { grid-column: 2; grid-row: 1 / span 2; align-self: center; min-width: 25px; padding: 4px 6px; border-radius: 999px; background: var(--surface-soft); color: var(--muted); font-size: 8px; font-style: normal; text-align: center; }
+.queue-origin-context { display: flex; flex-wrap: wrap; gap: 7px 16px; margin: -2px 0 9px; color: var(--muted); font-size: 9px; }
+.queue-origin-context a { color: var(--accent); font-weight: 700; }
 .status.queue-generating { background: var(--warning-soft); color: var(--warning); }
 .status.queue-ready, .status.queue-approved { background: var(--green-soft); color: var(--green); }
 .status.queue-archived { background: var(--surface-soft); color: var(--muted); }
@@ -861,6 +870,7 @@ textarea.field { min-height: 96px; resize: vertical; line-height: 1.55; }
 }
 
 @media (max-width: 760px) {
+  .editorial-origin-tabs { grid-template-columns: 1fr; }
   .executive-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .day-story { padding: 20px; }
   .story-context-grid { grid-template-columns: 1fr; }

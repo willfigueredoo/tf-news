@@ -51,7 +51,11 @@ const STOPWORDS = new Set([
   "uma", "the", "and", "for", "from", "with",
 ]);
 
-export async function prepareCompetitiveEditorialSupport(db: Database, articleId: number): Promise<CompetitiveSupport> {
+export async function prepareCompetitiveEditorialSupport(
+  db: Database,
+  articleId: number,
+  preferredNewsId?: number,
+): Promise<CompetitiveSupport> {
   const article = await loadCompetitorArticle(db, articleId);
   if (!article) throw new Error("Artigo concorrente não encontrado ou indisponível.");
   if (!article.title.trim() || (!article.excerpt.trim() && !article.content.trim())) {
@@ -59,7 +63,12 @@ export async function prepareCompetitiveEditorialSupport(db: Database, articleId
   }
 
   const news = await loadIntelligenceNews(db);
-  const ranked = rankSupportingNews(article, news).slice(0, 3);
+  const candidates = rankSupportingNews(article, news);
+  const preferred = preferredNewsId ? candidates.find((item) => item.news.id === preferredNewsId) : null;
+  const ranked = [
+    ...(preferred ? [preferred] : []),
+    ...candidates.filter((item) => item.news.id !== preferred?.news.id),
+  ].slice(0, 3);
   if (!ranked.length) {
     throw new CompetitorEditorialSupportError(
       "Nenhuma fonte independente relacionada foi encontrada no Monitoramento. Sincronize fontes do tema antes de gerar o Kit.",
@@ -81,6 +90,12 @@ export async function prepareCompetitiveEditorialSupport(db: Database, articleId
     supportingDecisions: decisions.slice(1),
     matchedTerms: ranked[0].matchedTerms,
   };
+}
+
+export function competitorArticleIdFromOrigin(origin: string | null | undefined) {
+  const match = /^seo_competitor_article:(\d+)$/.exec(origin ?? "");
+  const id = match ? Number(match[1]) : 0;
+  return Number.isSafeInteger(id) && id > 0 ? id : null;
 }
 
 export function rankSupportingNews(reference: CompetitorEditorialReference, news: IntelligenceNews[]): RankedNews[] {

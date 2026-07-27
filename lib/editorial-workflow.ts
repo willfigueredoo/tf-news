@@ -89,16 +89,16 @@ export async function inspectEditorialConflict(db: Database, newsId: number): Pr
   return null;
 }
 
-export async function enqueueEditorialNews(db: Database, newsId: number, origin = "monitoring") {
+export async function enqueueEditorialNews(db: Database, newsId: number, origin = "monitoring", title?: string) {
   const conflict = await inspectEditorialConflict(db, newsId);
   if (conflict) throw new EditorialWorkflowConflictError(conflict);
   const now = new Date().toISOString();
   const result = await db.prepare(`
     INSERT INTO editorial_queue (news_item_id, title, status, origin, version, created_at, updated_at)
-    SELECT n.id, n.title, 'new', ?, COALESCE(MAX(q.version), 0) + 1, ?, ?
+    SELECT n.id, COALESCE(?, n.title), 'new', ?, COALESCE(MAX(q.version), 0) + 1, ?, ?
     FROM news_items n LEFT JOIN editorial_queue q ON q.news_item_id = n.id
     WHERE n.id = ? GROUP BY n.id, n.title RETURNING id
-  `).bind(origin, now, now, newsId).run();
+  `).bind(title?.trim() || null, origin, now, now, newsId).run();
   const id = Number(result.meta.last_row_id);
   if (!id) throw new Error("NotÃ­cia nÃ£o encontrada para criar a pauta editorial.");
   return loadEditorialQueueItem(db, id);

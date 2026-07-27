@@ -23,7 +23,7 @@ import {
   deduplicateArticles,
   normalizeWordPressPost,
 } from "../lib/seo-sync.ts";
-import { rankSupportingNews } from "../lib/competitor-editorial.ts";
+import { competitorArticleIdFromOrigin, rankSupportingNews } from "../lib/competitor-editorial.ts";
 import { assertCompetitiveOriginality } from "../lib/editorial-kit.ts";
 
 test("migration SEO é aditiva, cria as tabelas e não cadastra concorrentes fictícios", async () => {
@@ -480,9 +480,12 @@ test("originalidade competitiva bloqueia cópia extensa e aceita abordagem próp
 });
 
 test("artigos concorrentes reutilizam Fila e Biblioteca com fonte independente e sem paráfrase", async () => {
-  const [route, component, kit, workflow] = await Promise.all([
+  const [route, queueRoute, component, queueComponent, library, kit, workflow] = await Promise.all([
     readFile(new URL("../app/api/seo-intelligence/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/editorial-queue/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/seo-intelligence/components/competitors-view.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/editorial-queue.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/editorial-intelligence.tsx", import.meta.url), "utf8"),
     readFile(new URL("../lib/editorial-kit.ts", import.meta.url), "utf8"),
     readFile(new URL("../lib/editorial-workflow.ts", import.meta.url), "utf8"),
   ]);
@@ -493,9 +496,23 @@ test("artigos concorrentes reutilizam Fila e Biblioteca com fonte independente e
   assert.match(route, /enqueueEditorialNews/);
   assert.match(route, /generateEditorialKitForNews/);
   assert.match(route, /competitiveReference:\s*support\.reference/);
+  assert.match(route, /support\.reference\.title/);
+  assert.match(queueRoute, /competitorArticleIdFromOrigin/);
+  assert.match(queueRoute, /prepareCompetitiveEditorialSupport\(db,\s*competitorArticleId,\s*input\.newsId\)/);
+  assert.match(queueRoute, /competitiveReference:\s*support\.reference/);
+  assert.match(queueComponent, /originFilter === "competitive"/);
+  assert.match(queueComponent, /Base factual:/);
+  assert.match(library, /kit\.originType === "competitive"/);
   assert.match(kit, /Não copie, parafraseie de perto/);
   assert.match(kit, /assertCompetitiveOriginality/);
   assert.match(workflow, /status = 'analysis'.*editorial_kit_id IS NULL/s);
+});
+
+test("origem competitiva é reconhecida apenas no formato persistido", () => {
+  assert.equal(competitorArticleIdFromOrigin("seo_competitor_article:613"), 613);
+  assert.equal(competitorArticleIdFromOrigin("monitoring"), null);
+  assert.equal(competitorArticleIdFromOrigin("seo_competitor_article:0"), null);
+  assert.equal(competitorArticleIdFromOrigin("seo_competitor_article:abc"), null);
 });
 
 function wordpressPost(id) {

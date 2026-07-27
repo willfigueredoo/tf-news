@@ -157,7 +157,7 @@ async function runCompetitorArticleAction(
   };
 
   if (operation === "create_queue") {
-    const queue = await enqueueEditorialNews(db, support.primaryDecision.id, origin);
+    const queue = await enqueueEditorialNews(db, support.primaryDecision.id, origin, support.reference.title);
     return Response.json({ queue, support: supportSummary, navigateTo: "queue" }, { status: 201 });
   }
 

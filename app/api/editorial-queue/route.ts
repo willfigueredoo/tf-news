@@ -10,8 +10,21 @@ import {
   type QueueRow,
 } from "../../../lib/editorial-workflow";
 import { AiProviderRequestError } from "../../../lib/ai";
+import { createEditorialKit } from "../../../lib/editorial-kit";
+import {
+  competitorArticleIdFromOrigin,
+  prepareCompetitiveEditorialSupport,
+} from "../../../lib/competitor-editorial";
 
-type QueueListRow = QueueRow & { source_name?: string; primary_icp?: string; relevance_score?: number; published_at?: string };
+type QueueListRow = QueueRow & {
+  source_name?: string;
+  primary_icp?: string;
+  relevance_score?: number;
+  published_at?: string;
+  competitor_article_title?: string | null;
+  competitor_article_url?: string | null;
+  competitor_name?: string | null;
+};
 
 export async function GET(request: Request) {
   try {
@@ -20,8 +33,14 @@ export async function GET(request: Request) {
     const result = await db.prepare(`
       SELECT q.id, q.news_item_id, q.editorial_kit_id, q.title, q.status, q.origin, q.version,
         q.last_error, q.started_at, q.completed_at, q.archived_at, q.created_at, q.updated_at,
-        n.source_name, n.primary_icp, n.relevance_score, n.published_at
+        n.source_name, n.primary_icp, n.relevance_score, n.published_at,
+        competitor_article.title AS competitor_article_title,
+        competitor_article.url AS competitor_article_url,
+        competitor.name AS competitor_name
       FROM editorial_queue q JOIN news_items n ON n.id = q.news_item_id
+      LEFT JOIN seo_competitor_articles competitor_article
+        ON q.origin = CONCAT('seo_competitor_article:', competitor_article.id::text)
+      LEFT JOIN seo_competitors competitor ON competitor.id = competitor_article.competitor_id
       WHERE (? = TRUE OR q.archived_at IS NULL)
       ORDER BY CASE q.status WHEN 'generating' THEN 0 WHEN 'approved' THEN 1 WHEN 'analysis' THEN 2
         WHEN 'new' THEN 3 WHEN 'ready' THEN 4 WHEN 'published' THEN 5 ELSE 6 END,
@@ -57,6 +76,24 @@ export async function POST(request: Request) {
       return Response.json({ created: created.filter((item): item is QueueRow => Boolean(item)).map(toClientQueue), conflicts }, { status: conflicts.length ? 207 : 201 });
     }
     if (input.action === "generate") {
+      const queue = input.queueId ? await db.prepare(
+        "SELECT id, news_item_id, origin FROM editorial_queue WHERE id = ? AND news_item_id = ?",
+      ).bind(input.queueId, input.newsId).first<{ id: number; news_item_id: number; origin: string }>() : null;
+      const competitorArticleId = competitorArticleIdFromOrigin(queue?.origin);
+      if (competitorArticleId) {
+        const support = await prepareCompetitiveEditorialSupport(db, competitorArticleId, input.newsId);
+        const generated = await generateEditorialKitForNews(db, input.newsId, {
+          mode: input.mode,
+          queueId: input.queueId,
+          origin: queue?.origin,
+          createKit: (database, aiConfig, decision, options) => createEditorialKit(database, aiConfig, decision, {
+            ...options,
+            competitiveReference: support.reference,
+            supportingDecisions: support.supportingDecisions,
+          }),
+        });
+        return Response.json({ ...generated, queue: generated.queue ? toClientQueue(generated.queue) : null }, { status: 201 });
+      }
       const generated = await generateEditorialKitForNews(db, input.newsId, {
         mode: input.mode,
         queueId: input.queueId,
@@ -90,6 +127,10 @@ function toClientQueue(row: QueueListRow) {
     primaryIcp: row.primary_icp,
     relevanceScore: row.relevance_score,
     publishedAt: row.published_at,
+    originType: competitorArticleIdFromOrigin(row.origin) ? "competitive" : "monitoring",
+    competitorArticleTitle: row.competitor_article_title ?? null,
+    competitorArticleUrl: row.competitor_article_url ?? null,
+    competitorName: row.competitor_name ?? null,
   };
 }
 
