@@ -83,7 +83,7 @@ export async function buildEvergreenCandidates(
         n.primary_icp, n.secondary_icps, n.relevance_score, s.name AS source_name
       FROM news_items n
       JOIN sources s ON s.id = n.source_id
-      WHERE n.archived = FALSE AND n.discarded = FALSE
+      WHERE n.archived_at IS NULL AND n.status <> 'discarded'
         AND n.published_at >= ? AND n.relevance_score >= 45
       ORDER BY n.relevance_score DESC, n.published_at DESC, n.id DESC
       LIMIT ?

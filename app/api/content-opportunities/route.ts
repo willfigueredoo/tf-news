@@ -117,7 +117,7 @@ function contentOpportunityError(error: unknown) {
     }, { status: error.httpStatus === 429 ? 503 : 502 });
   }
   const message = safeError(error);
-  const schemaPending = /content_opportunities|content_opportunity_jobs|does not exist|undefined_table/i.test(message);
+  const schemaPending = /relation\s+["']?(?:content_opportunities|content_opportunity_jobs|content_opportunity_sources)["']?\s+does not exist|undefined_table/i.test(message);
   const timeout = /Timeout interno da IA|aborted/i.test(message);
   console.error("[content-opportunities]", message);
   return Response.json({

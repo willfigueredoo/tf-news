@@ -22,6 +22,14 @@ const news = (id, title, topics, relevance = 82) => ({
   publisher: "Fonte real",
 });
 
+test("snapshot consulta as colunas operacionais reais do Monitoramento", async () => {
+  const source = await readFile(new URL("../lib/content-opportunities.ts", import.meta.url), "utf8");
+  assert.match(source, /n\.archived_at IS NULL/);
+  assert.match(source, /n\.status <> 'discarded'/);
+  assert.doesNotMatch(source, /n\.archived = FALSE/);
+  assert.doesNotMatch(source, /n\.discarded = FALSE/);
+});
+
 test("migration da Central de Conteúdos é estritamente aditiva", async () => {
   const migration = await readFile(new URL("../drizzle/0008_normal_mysterio.sql", import.meta.url), "utf8");
   for (const table of [
