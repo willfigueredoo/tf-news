@@ -1,6 +1,7 @@
 import { getRuntimeDb } from "../../../../db/runtime";
 import { collectAllSources } from "../../../../lib/ingestion";
 import { getAiConfig, getCronSecret } from "../../../../lib/runtime-config";
+import { enqueueContentOpportunityAnalysis } from "../../../../lib/content-opportunity-jobs";
 
 export const dynamic = "force-dynamic";
 
@@ -10,6 +11,13 @@ export async function GET(request: Request) {
   try {
     const db = await getRuntimeDb();
     const result = await collectAllSources(db, getAiConfig());
+    if (!result.locked && result.created > 0) {
+      try {
+        await enqueueContentOpportunityAnalysis(db, "news_sync");
+      } catch (error) {
+        console.warn("[content-opportunity-enqueue]", error instanceof Error ? error.message : "Falha ao enfileirar análise.");
+      }
+    }
     return Response.json(result, { status: result.locked ? 409 : 200 });
   } catch (error) { return Response.json({ error: error instanceof Error ? error.message : "Falha no agendamento." }, { status: 500 }); }
 }

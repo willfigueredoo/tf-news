@@ -66,7 +66,7 @@ Configure os segredos em Production e, somente se necessário, em Preview. Nunca
 
 ## Migration segura
 
-A migration inicial PostgreSQL é `drizzle/0000_bumpy_thunderbolt.sql`; ela já foi aplicada e validada no Neon de produção. A migration operacional do Monitoramento é `drizzle/0001_brief_microbe.sql`. A Biblioteca Editorial usa `drizzle/0002_overjoyed_gideon.sql`, aplicada e validada em produção em 15/07/2026, composta somente por `CREATE TABLE`, uma chave estrangeira sem cascata e `CREATE INDEX`. Nenhuma migration futura deve ser executada em produção sem aprovação explícita.
+A migration inicial PostgreSQL é `drizzle/0000_bumpy_thunderbolt.sql`; ela já foi aplicada e validada no Neon de produção. A migration operacional do Monitoramento é `drizzle/0001_brief_microbe.sql`. A Biblioteca Editorial usa `drizzle/0002_overjoyed_gideon.sql`, aplicada e validada em produção em 15/07/2026. A Central de Conteúdos usa `drizzle/0008_normal_mysterio.sql`, composta somente por `CREATE TABLE`, chaves estrangeiras sem cascata e `CREATE INDEX`. Nenhuma migration deve ser executada em produção sem aprovação explícita.
 
 Processo obrigatório:
 

@@ -3,6 +3,7 @@ import { rateLimit } from "../../../lib/api-security";
 import { getAiConfig } from "../../../lib/runtime-config";
 import { refreshSeoIntelligence } from "../../../lib/seo-engine";
 import { processNextSeoSyncBatch } from "../../../lib/seo-sync-jobs";
+import { enqueueContentOpportunityAnalysis } from "../../../lib/content-opportunity-jobs";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -56,6 +57,11 @@ export async function POST(request: Request) {
     let intelligence = null;
     if (job?.status === "completed" && (job.inserted > 0 || job.updated > 0 || job.unavailable > 0)) {
       intelligence = await refreshSeoIntelligence(db, getAiConfig(), { withAi: false });
+      try {
+        await enqueueContentOpportunityAnalysis(db, "competitor_sync");
+      } catch (error) {
+        console.warn("[content-opportunity-enqueue]", error instanceof Error ? error.message : "Falha ao enfileirar análise.");
+      }
     }
     return Response.json({ job, intelligence });
   } catch (error) {

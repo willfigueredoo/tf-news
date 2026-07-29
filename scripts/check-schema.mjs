@@ -6,6 +6,9 @@ if (!connectionString) throw new Error("DATABASE_URL não foi configurada.");
 const expectedTables = [
   "ai_usage_logs",
   "articles",
+  "content_opportunities",
+  "content_opportunity_jobs",
+  "content_opportunity_sources",
   "editorial_briefs",
   "editorial_kit_sources",
   "editorial_kits",
@@ -160,6 +163,28 @@ try {
       (select count(*)::int from seo_authority_snapshots) as authority_snapshots,
       (select count(*)::int from seo_opportunities) as opportunities
   `;
+  const contentOpportunityIndexes = await sql`
+    select tablename, indexname
+    from pg_indexes
+    where schemaname = 'public'
+      and tablename = any(${["content_opportunities", "content_opportunity_sources", "content_opportunity_jobs"]})
+    order by tablename, indexname
+  `;
+  const contentOpportunityForeignKeys = await sql`
+    select tc.table_name, tc.constraint_name, rc.delete_rule, rc.update_rule
+    from information_schema.table_constraints tc
+    join information_schema.referential_constraints rc
+      on rc.constraint_schema = tc.constraint_schema and rc.constraint_name = tc.constraint_name
+    where tc.constraint_schema = 'public' and tc.constraint_type = 'FOREIGN KEY'
+      and tc.table_name = any(${["content_opportunities", "content_opportunity_sources"]})
+    order by tc.table_name, tc.constraint_name
+  `;
+  const [contentOpportunityMetrics] = await sql`
+    select
+      (select count(*)::int from content_opportunities) as opportunities,
+      (select count(*)::int from content_opportunity_sources) as source_relations,
+      (select count(*)::int from content_opportunity_jobs) as jobs
+  `;
 
   console.log(JSON.stringify({
     tables: created,
@@ -185,6 +210,11 @@ try {
       metrics: seoMetrics,
       indexes: seoIndexes,
       foreignKeys: seoForeignKeys,
+    },
+    contentCenter: {
+      metrics: contentOpportunityMetrics,
+      indexes: contentOpportunityIndexes,
+      foreignKeys: contentOpportunityForeignKeys,
     },
   }, null, 2));
 } finally {

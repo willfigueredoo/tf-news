@@ -14,7 +14,20 @@ export async function deleteEditorialKit(db: Database, kitId: number): Promise<E
   if (!kit) return { deleted: false, kitId, newsItemId: null, removedRelations: 0 };
 
   const [relations, deletedKit] = await db.batch([
-    db.prepare("DELETE FROM editorial_kit_sources WHERE editorial_kit_id = ? RETURNING id").bind(kitId),
+    db.prepare(`
+      WITH reset_opportunities AS (
+        UPDATE content_opportunities
+        SET generated_kit_id = NULL, status = 'opportunity', updated_at = CURRENT_TIMESTAMP::text
+        WHERE generated_kit_id = ?
+        RETURNING id
+      ), reset_queue AS (
+        UPDATE editorial_queue
+        SET editorial_kit_id = NULL, status = 'analysis', completed_at = NULL, updated_at = CURRENT_TIMESTAMP::text
+        WHERE editorial_kit_id = ?
+        RETURNING id
+      )
+      DELETE FROM editorial_kit_sources WHERE editorial_kit_id = ? RETURNING id
+    `).bind(kitId, kitId, kitId),
     db.prepare("DELETE FROM editorial_kits WHERE id = ? RETURNING id").bind(kitId),
   ]);
 

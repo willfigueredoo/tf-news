@@ -65,7 +65,7 @@ type Kit = {
   archivedAt: string | null;
   createdAt: string;
   updatedAt: string;
-  originType?: "monitoring" | "competitive";
+  originType?: "monitoring" | "competitive" | "evergreen";
   competitorArticleTitle?: string | null;
   competitorName?: string | null;
 };
@@ -91,7 +91,7 @@ type KitPayload = {
 };
 
 type LibraryFilter = "all" | "favorites" | "pinned" | "active" | "archived";
-type LibraryOrigin = "monitoring" | "competitive";
+type LibraryOrigin = "monitoring" | "competitive" | "evergreen";
 type LibrarySort = "updated" | "score" | "title";
 type LibraryView = "cards" | "list";
 
@@ -250,7 +250,7 @@ function Library({ kits, pending, initialKitId, onOpen, onUpdate, onDeleteReques
   const deferredSearch = useDeferredValue(search);
   const [filter, setFilter] = useState<LibraryFilter>("all");
   const [originFilter, setOriginFilter] = useState<LibraryOrigin>(() => (
-    kits.find((kit) => kit.id === initialKitId)?.originType === "competitive" ? "competitive" : "monitoring"
+    kits.find((kit) => kit.id === initialKitId)?.originType ?? "monitoring"
   ));
   const [sort, setSort] = useState<LibrarySort>("updated");
   const [view, setView] = useState<LibraryView>("cards");
@@ -284,7 +284,9 @@ function Library({ kits, pending, initialKitId, onOpen, onUpdate, onDeleteReques
         || (filter === "pinned" && preferences.pinned.includes(kit.id))
         || (filter === "active" && !kit.archivedAt)
         || (filter === "archived" && Boolean(kit.archivedAt));
-      const matchesOrigin = originFilter === "competitive" ? kit.originType === "competitive" : kit.originType !== "competitive";
+      const matchesOrigin = originFilter === "monitoring"
+        ? !kit.originType || kit.originType === "monitoring"
+        : kit.originType === originFilter;
       return matchesSearch && matchesFilter && matchesOrigin;
     }).sort((a, b) => {
       const pinDifference = Number(preferences.pinned.includes(b.id)) - Number(preferences.pinned.includes(a.id));
@@ -301,8 +303,9 @@ function Library({ kits, pending, initialKitId, onOpen, onUpdate, onDeleteReques
 
   const quickFilters: Array<[LibraryFilter, string]> = [["all", "Todos"], ["favorites", "Favoritos"], ["pinned", "Fixados"], ["active", "Ativos"], ["archived", "Arquivados"]];
   const originCounts = {
-    monitoring: kits.filter((kit) => kit.originType !== "competitive").length,
+    monitoring: kits.filter((kit) => !kit.originType || kit.originType === "monitoring").length,
     competitive: kits.filter((kit) => kit.originType === "competitive").length,
+    evergreen: kits.filter((kit) => kit.originType === "evergreen").length,
   };
   return <>
     <div className="section-head">
@@ -312,6 +315,7 @@ function Library({ kits, pending, initialKitId, onOpen, onUpdate, onDeleteReques
     <div className="editorial-origin-tabs" role="tablist" aria-label="Origem dos Kits">
       <button type="button" role="tab" aria-selected={originFilter === "monitoring"} className={originFilter === "monitoring" ? "active" : ""} onClick={() => setOriginFilter("monitoring")}><strong>Monitoramento</strong><span>Kits criados a partir das notícias monitoradas</span><i>{originCounts.monitoring}</i></button>
       <button type="button" role="tab" aria-selected={originFilter === "competitive"} className={originFilter === "competitive" ? "active" : ""} onClick={() => setOriginFilter("competitive")}><strong>Inteligência Competitiva</strong><span>Kits inspirados em artigos de concorrentes</span><i>{originCounts.competitive}</i></button>
+      <button type="button" role="tab" aria-selected={originFilter === "evergreen"} className={originFilter === "evergreen" ? "active" : ""} onClick={() => setOriginFilter("evergreen")}><strong>Conteúdo Evergreen</strong><span>Kits gerados pela Central de Conteúdos</span><i>{originCounts.evergreen}</i></button>
     </div>
     {pending && <div className="notice">A Biblioteca ainda não está disponível. Nenhum dado fictício será exibido.</div>}
     <div className="card library-toolbar">
@@ -349,7 +353,7 @@ function LibraryItem({ kit, favorite, pinned, onFavorite, onPin, onOpen, onUpdat
 }) {
   return <article className={`card library-item ${kit.archivedAt ? "archived" : ""}`}>
     <div className="library-item-top">
-      <div className="library-badges"><span className="status draft">Blog + WhatsApp</span>{kit.originType === "competitive" && <span className="status relevant">Inspirado em {kit.competitorName ?? "concorrente"}</span>}{kit.archivedAt && <span className="status archived">Arquivado</span>}</div>
+      <div className="library-badges"><span className="status draft">Blog + WhatsApp</span>{kit.originType === "competitive" && <span className="status relevant">Inspirado em {kit.competitorName ?? "concorrente"}</span>}{kit.originType === "evergreen" && <span className="status relevant">Conteúdo Evergreen</span>}{kit.archivedAt && <span className="status archived">Arquivado</span>}</div>
       <div className="preference-actions"><button className={favorite ? "active" : ""} onClick={onFavorite} aria-label={favorite ? "Remover dos favoritos" : "Favoritar"} aria-pressed={favorite}>★</button><button className={pinned ? "active" : ""} onClick={onPin} aria-label={pinned ? "Desafixar" : "Fixar"} aria-pressed={pinned}>⌖</button></div>
     </div>
     <button className="library-title" onClick={onOpen}>{kit.title}</button>

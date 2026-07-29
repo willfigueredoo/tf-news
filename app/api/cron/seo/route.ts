@@ -5,6 +5,7 @@ import {
   drainSeoSyncJobs,
   enqueueAllSeoSyncJobs,
 } from "../../../../lib/seo-sync-jobs";
+import { enqueueContentOpportunityAnalysis } from "../../../../lib/content-opportunity-jobs";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -28,6 +29,13 @@ export async function GET(request: Request) {
         forceAi: false,
       })
       : null;
+    if (sync.changed) {
+      try {
+        await enqueueContentOpportunityAnalysis(db, "competitor_sync");
+      } catch (error) {
+        console.warn("[content-opportunity-enqueue]", error instanceof Error ? error.message : "Falha ao enfileirar análise.");
+      }
+    }
     return Response.json({ queued, sync, intelligence });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Falha na atualização agendada da Inteligência SEO.";

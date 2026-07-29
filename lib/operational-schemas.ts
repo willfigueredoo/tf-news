@@ -96,6 +96,34 @@ const editorialSectionSchema = z.object({
   content: z.string().min(80).max(4_000).refine(isPlainEditorialText, "O conteúdo do bloco deve ser texto, sem HTML."),
 });
 
+const editorialEvergreenRawSchema = z.object({
+  contentType: z.literal("evergreen"),
+  searchIntent: z.string().min(1).max(2_000),
+  faq: z.array(z.object({
+    question: z.string().min(1).max(2_000),
+    answer: z.string().min(1).max(5_000),
+  })).min(2).max(5),
+  internalLinkSuggestions: z.array(z.object({
+    title: z.string().min(1).max(2_000),
+    url: z.string().url(),
+  })).max(6),
+  imageSuggestion: z.string().min(1).max(3_000),
+});
+
+const editorialEvergreenSchema = z.object({
+  contentType: z.literal("evergreen"),
+  searchIntent: z.string().min(5).max(240),
+  faq: z.array(z.object({
+    question: z.string().min(10).max(180),
+    answer: z.string().min(30).max(700),
+  })).min(2).max(5),
+  internalLinkSuggestions: z.array(z.object({
+    title: z.string().min(5).max(180),
+    url: z.string().url(),
+  })).max(6),
+  imageSuggestion: z.string().min(20).max(600),
+});
+
 export const editorialKitRawPayloadSchema = z.object({
   blog: z.object({
     title: z.string().min(1).max(2_000),
@@ -115,6 +143,10 @@ export const editorialKitRawPayloadSchema = z.object({
   whatsapp: z.object({
     text: z.string().min(1).max(10_000),
   }),
+});
+
+export const editorialKitEvergreenRawPayloadSchema = editorialKitRawPayloadSchema.extend({
+  evergreen: editorialEvergreenRawSchema,
 });
 
 export const editorialKitPayloadSchema = z.object({
@@ -137,6 +169,7 @@ export const editorialKitPayloadSchema = z.object({
   whatsapp: z.object({
     text: z.string().min(400).max(700),
   }),
+  evergreen: editorialEvergreenSchema.optional(),
 });
 
 export const editorialKitRequestSchema = z.object({
@@ -180,7 +213,9 @@ export type ClassificationPayload = z.infer<typeof classificationSchema>;
 export type CoherencePayload = z.infer<typeof coherenceSchema>;
 export type BriefPayload = z.infer<typeof briefPayloadSchema>;
 export type ArticlePayload = z.infer<typeof articlePayloadSchema>;
-export type EditorialKitRawPayload = z.infer<typeof editorialKitRawPayloadSchema>;
+export type EditorialKitRawPayload = z.infer<typeof editorialKitRawPayloadSchema> & {
+  evergreen?: z.infer<typeof editorialEvergreenRawSchema>;
+};
 export type EditorialKitPayload = z.infer<typeof editorialKitPayloadSchema>;
 
 function isValidEditorialHtml(html: string) {

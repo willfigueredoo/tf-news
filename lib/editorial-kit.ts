@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { aiConfigured, logAiPhase, runStructuredAi, type AiConfig, type AiPhaseLogger } from "./ai.ts";
-import { editorialKitPayloadSchema, editorialKitRawPayloadSchema, type EditorialKitPayload, type EditorialKitRawPayload } from "./operational-schemas.ts";
+import { editorialKitEvergreenRawPayloadSchema, editorialKitPayloadSchema, editorialKitRawPayloadSchema, type EditorialKitPayload, type EditorialKitRawPayload } from "./operational-schemas.ts";
 import { applyPermanentEditorialPolicy, EDITORIAL_TECHNICAL_EDITOR_PROMPT } from "./editorial-policy.ts";
 import type { Database } from "../db/runtime.ts";
 import type { EditorialDecision } from "./editorial-intelligence.ts";
@@ -17,6 +17,16 @@ export type GenerationOptions = {
   queueId?: number;
   competitiveReference?: CompetitorEditorialReference;
   supportingDecisions?: EditorialDecision[];
+  evergreenContext?: {
+    opportunityId: number;
+    suggestedTitle: string;
+    category: string;
+    primaryKeyword: string;
+    searchIntent: string;
+    rationale: string;
+    relatedIcps: string[];
+    internalLinks: Array<{ title: string; url: string }>;
+  };
 };
 type CompatibilityContext = {
   newsId: number;
@@ -96,13 +106,15 @@ export async function generateEditorialKit(db: Database, config: AiConfig, decis
       maxRetries: 2,
     },
     operation: "editorial-kit",
-    schemaName: "tf_news_editorial_kit_gutenberg_v2",
-    schema: editorialKitRawPayloadSchema,
+    schemaName: options.evergreenContext ? "tf_news_editorial_kit_evergreen_v1" : "tf_news_editorial_kit_gutenberg_v2",
+    schema: options.evergreenContext ? editorialKitEvergreenRawPayloadSchema : editorialKitRawPayloadSchema,
     system: [
       EDITORIAL_TECHNICAL_EDITOR_PROMPT,
       "Você atua como Editor Técnico com a competência de um Redator SEO Sênior especializado em conteúdo B2B para logística.",
       "Gere somente os objetos blog e whatsapp definidos no schema, em português do Brasil.",
-      "Não gere avaliações, explicações do processo, alternativas de título, FAQ, JSON-LD, metadados extras ou outros canais.",
+      options.evergreenContext
+        ? "Gere os objetos blog, whatsapp e evergreen definidos no schema. Inclua FAQ, intenção de busca, links internos válidos fornecidos e sugestão descritiva de imagem."
+        : "Não gere avaliações, explicações do processo, alternativas de título, FAQ, JSON-LD, metadados extras ou outros canais.",
       "Não invente dados, falas, datas ou relações causais. Use somente os fatos e a fonte fornecidos.",
       "Use exclusivamente a URL original fornecida. Não acrescente fontes ou links que não estejam na entrada.",
       "A seção rastreável de fontes e a nota de transparência serão anexadas pelo sistema; não as invente nem as duplique.",
@@ -124,6 +136,15 @@ export async function generateEditorialKit(db: Database, config: AiConfig, decis
         "Crie uma arquitetura, redação e abordagem originais na linguagem técnica e institucional do TF News.",
         "Não trate afirmações da referência competitiva como fatos confirmados. Toda afirmação factual deve estar sustentada pelas fontes independentes fornecidas.",
         "Não mencione o concorrente no texto público, salvo quando ele também for parte factual da notícia independente.",
+      ] : []),
+      ...(options.evergreenContext ? [
+        "O conteúdo é evergreen: deve permanecer útil por meses ou anos e não pode depender exclusivamente do acontecimento atual.",
+        "Use os fatos atuais apenas como contexto e sustentação. A estrutura principal deve responder a uma dúvida recorrente de busca.",
+        "Adote o título sugerido e a palavra-chave como orientação, refinando-os somente quando necessário para clareza e SEO.",
+        "Inclua a tag Conteúdo Evergreen exatamente uma vez.",
+        "Inclua um bloco de perguntas frequentes entre os blocos editoriais, sem inventar informações.",
+        "Sugira somente links internos fornecidos na entrada e nunca invente URLs.",
+        "A sugestão de imagem deve descrever uma imagem institucional original, sem logotipos de terceiros e sem pedir sua geração.",
       ] : []),
       "Retorne somente JSON válido que obedeça ao schema solicitado.",
     ].join(" "),
@@ -160,8 +181,17 @@ export async function generateEditorialKit(db: Database, config: AiConfig, decis
         topics: options.competitiveReference.topics,
         instruction: "Use somente como referência de oportunidade. Não copie nem trate como comprovação factual.",
       } : null,
+      evergreenOpportunity: options.evergreenContext ? {
+        suggestedTitle: options.evergreenContext.suggestedTitle,
+        category: options.evergreenContext.category,
+        primaryKeyword: options.evergreenContext.primaryKeyword,
+        searchIntent: options.evergreenContext.searchIntent,
+        rationale: options.evergreenContext.rationale,
+        relatedIcps: options.evergreenContext.relatedIcps,
+        approvedInternalLinks: options.evergreenContext.internalLinks,
+      } : null,
     }),
-    maxOutputTokens: EDITORIAL_KIT_MAX_OUTPUT_TOKENS,
+    maxOutputTokens: options.evergreenContext ? 2_400 : EDITORIAL_KIT_MAX_OUTPUT_TOKENS,
     fetchImpl: options.fetchImpl,
     phaseLogger: options.phaseLogger,
     retryPolicy: "high-demand",
@@ -172,11 +202,19 @@ export async function generateEditorialKit(db: Database, config: AiConfig, decis
       newsTitle: decision.title,
       sourceName: decision.sourceName,
       editorialScore: decision.editorialScore,
+      contentOpportunityId: options.evergreenContext?.opportunityId ?? null,
     },
   });
 
   phaseLogger({ phase: "normalization_start", operation: "editorial-kit", provider: config.provider, model: config.model, elapsedMs: Date.now() - started });
   const normalized = normalizeGeneratedEditorialKitPayload(response.data);
+  if (options.evergreenContext) {
+    normalized.blog.tags = normalizeStringArray(
+      [...normalized.blog.tags, "Conteúdo Evergreen"],
+      8,
+      80,
+    );
+  }
   normalized.blog.sources = uniqueSources([
     traceableDecisionSource(decision),
     ...(options.supportingDecisions ?? []).map(traceableDecisionSource),
@@ -232,6 +270,19 @@ export function normalizeGeneratedEditorialKitPayload(payload: EditorialKitRawPa
     content: normalizeStructuredText(block.content),
   }));
   const conclusion = normalizeStructuredText(payload.blog.conclusion);
+  const evergreen = payload.evergreen ? {
+    contentType: "evergreen" as const,
+    searchIntent: truncateWords(payload.evergreen.searchIntent, 240),
+    faq: payload.evergreen.faq.slice(0, 5).map((item) => ({
+      question: truncateWords(item.question, 180),
+      answer: truncateProse(item.answer, 700, 30),
+    })),
+    internalLinkSuggestions: payload.evergreen.internalLinkSuggestions.slice(0, 6).map((item) => ({
+      title: truncateWords(item.title, 180),
+      url: item.url,
+    })),
+    imageSuggestion: truncateProse(payload.evergreen.imageSuggestion, 600, 20),
+  } : undefined;
   return {
     blog: {
       title: truncateWords(payload.blog.title, 180),
@@ -252,6 +303,7 @@ export function normalizeGeneratedEditorialKitPayload(payload: EditorialKitRawPa
     whatsapp: {
       text: truncateProse(payload.whatsapp.text, 700, 400),
     },
+    ...(evergreen ? { evergreen } : {}),
   };
 }
 
@@ -264,7 +316,11 @@ export async function createEditorialKit(db: Database, config: AiConfig, decisio
   try {
     const source = payload.blog.sources[0];
     const queueAware = Boolean(options.queueId);
-    const statement = queueAware
+    const evergreenAware = Boolean(options.queueId && options.evergreenContext);
+    const statement = evergreenAware
+      ? db.prepare("WITH eligible_opportunity AS (SELECT id FROM content_opportunities WHERE id = ? AND status = 'generating' AND generated_kit_id IS NULL FOR UPDATE), eligible_queue AS (SELECT id FROM editorial_queue WHERE id = ? AND status = 'generating' AND editorial_kit_id IS NULL FOR UPDATE), inserted_kit AS (INSERT INTO editorial_kits (news_item_id, title, primary_icp, editorial_score, provider, model, payload, status, created_at, updated_at) SELECT ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ? FROM eligible_queue CROSS JOIN eligible_opportunity RETURNING id), inserted_source AS (INSERT INTO editorial_kit_sources (editorial_kit_id, editorial_source_id, title, url, publisher, primary_or_secondary, authority_level, published_at, created_at) SELECT id, ?, ?, ?, ?, ?, ?, ?, ? FROM inserted_kit RETURNING editorial_kit_id), updated_queue AS (UPDATE editorial_queue SET editorial_kit_id = (SELECT id FROM inserted_kit), status = 'ready', completed_at = ?, last_error = NULL, updated_at = ? WHERE id = (SELECT id FROM eligible_queue) RETURNING id), updated_opportunity AS (UPDATE content_opportunities SET generated_kit_id = (SELECT id FROM inserted_kit), status = 'in_production', last_error = NULL, updated_at = ? WHERE id = (SELECT id FROM eligible_opportunity) RETURNING id) SELECT id FROM inserted_kit")
+        .bind(options.evergreenContext!.opportunityId, options.queueId, decision.id, payload.blog.seoTitle, decision.primaryIcp, decision.editorialScore, config.provider, config.model, JSON.stringify(payload), now, now, source.sourceId ?? null, source.title ?? decision.title, source.url, source.publisher ?? source.name, source.primaryOrSecondary ?? "contextual", source.authorityLevel ?? "medium", source.publishedAt ?? decision.publishedAt, now, now, now, now)
+      : queueAware
       ? db.prepare("WITH eligible_queue AS (SELECT id FROM editorial_queue WHERE id = ? AND status = 'generating' AND editorial_kit_id IS NULL FOR UPDATE), inserted_kit AS (INSERT INTO editorial_kits (news_item_id, title, primary_icp, editorial_score, provider, model, payload, status, created_at, updated_at) SELECT ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ? FROM eligible_queue RETURNING id), inserted_source AS (INSERT INTO editorial_kit_sources (editorial_kit_id, editorial_source_id, title, url, publisher, primary_or_secondary, authority_level, published_at, created_at) SELECT id, ?, ?, ?, ?, ?, ?, ?, ? FROM inserted_kit RETURNING editorial_kit_id), updated_queue AS (UPDATE editorial_queue SET editorial_kit_id = (SELECT id FROM inserted_kit), status = 'ready', completed_at = ?, last_error = NULL, updated_at = ? WHERE id = (SELECT id FROM eligible_queue) RETURNING id) SELECT id FROM inserted_kit")
         .bind(options.queueId, decision.id, payload.blog.seoTitle, decision.primaryIcp, decision.editorialScore, config.provider, config.model, JSON.stringify(payload), now, now, source.sourceId ?? null, source.title ?? decision.title, source.url, source.publisher ?? source.name, source.primaryOrSecondary ?? "contextual", source.authorityLevel ?? "medium", source.publishedAt ?? decision.publishedAt, now, now, now)
       : db.prepare("WITH inserted_kit AS (INSERT INTO editorial_kits (news_item_id, title, primary_icp, editorial_score, provider, model, payload, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?) RETURNING id) INSERT INTO editorial_kit_sources (editorial_kit_id, editorial_source_id, title, url, publisher, primary_or_secondary, authority_level, published_at, created_at) SELECT id, ?, ?, ?, ?, ?, ?, ?, ? FROM inserted_kit RETURNING editorial_kit_id AS id")

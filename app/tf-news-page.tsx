@@ -7,11 +7,13 @@ export async function TFNewsPage({
   initialSeoCompetitorId = null,
   initialSeoCreatingCompetitor = false,
   openSeoIntelligence = false,
+  openContentCenter = false,
 }: {
   initialSeoTab?: SeoTab;
   initialSeoCompetitorId?: number | null;
   initialSeoCreatingCompetitor?: boolean;
   openSeoIntelligence?: boolean;
+  openContentCenter?: boolean;
 } = {}) {
   const user = await getChatGPTUser();
   const updatedAt = new Intl.DateTimeFormat("pt-BR", {
@@ -25,7 +27,7 @@ export async function TFNewsPage({
     userName={user?.displayName ?? "Administrador TF"}
     userEmail={user?.email ?? "ambiente local"}
     initialUpdatedAt={updatedAt}
-    initialView={openSeoIntelligence ? "Inteligência SEO" : "Visão Executiva"}
+    initialView={openContentCenter ? "Central de Conteúdos" : openSeoIntelligence ? "Inteligência SEO" : "Visão Executiva"}
     initialSeoTab={initialSeoTab}
     initialSeoCompetitorId={initialSeoCompetitorId}
     initialSeoCreatingCompetitor={initialSeoCreatingCompetitor}

@@ -10,6 +10,7 @@ type KitRow = {
   id: number; news_item_id: number; title: string; primary_icp: string; editorial_score: number; provider: string; model: string;
   payload: string; status: string; archived_at: string | null; created_at: string; updated_at: string;
   origin: string | null; competitor_article_title: string | null; competitor_name: string | null;
+  content_opportunity_id: number | null; content_opportunity_title: string | null;
 };
 
 export async function GET() {
@@ -18,7 +19,9 @@ export async function GET() {
     const result = await db.prepare(`
       SELECT kit.id, kit.news_item_id, kit.title, kit.primary_icp, kit.editorial_score,
         kit.provider, kit.model, kit.payload, kit.status, kit.archived_at, kit.created_at, kit.updated_at,
-        journey.origin, competitor_article.title AS competitor_article_title, competitor.name AS competitor_name
+        journey.origin, competitor_article.title AS competitor_article_title, competitor.name AS competitor_name,
+        content_opportunity.id AS content_opportunity_id,
+        content_opportunity.suggested_title AS content_opportunity_title
       FROM editorial_kits kit
       LEFT JOIN LATERAL (
         SELECT queue.origin
@@ -30,6 +33,7 @@ export async function GET() {
       LEFT JOIN seo_competitor_articles competitor_article
         ON journey.origin = CONCAT('seo_competitor_article:', competitor_article.id::text)
       LEFT JOIN seo_competitors competitor ON competitor.id = competitor_article.competitor_id
+      LEFT JOIN content_opportunities content_opportunity ON content_opportunity.generated_kit_id = kit.id
       ORDER BY kit.updated_at DESC
       LIMIT 200
     `).all<KitRow>();
@@ -91,6 +95,7 @@ export async function DELETE(request: Request) {
 function toClientKit(row: KitRow) {
   const payload = normalizeEditorialKitPayload(JSON.parse(row.payload), { newsId: row.news_item_id, title: row.title, primaryIcp: row.primary_icp, editorialScore: row.editorial_score, createdAt: row.created_at });
   const competitive = Boolean(row.origin?.startsWith("seo_competitor_article:"));
+  const evergreen = Boolean(row.content_opportunity_id);
   return {
     id: row.id,
     newsItemId: row.news_item_id,
@@ -104,9 +109,11 @@ function toClientKit(row: KitRow) {
     archivedAt: row.archived_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
-    originType: competitive ? "competitive" : "monitoring",
+    originType: evergreen ? "evergreen" : competitive ? "competitive" : "monitoring",
     competitorArticleTitle: row.competitor_article_title,
     competitorName: row.competitor_name,
+    contentOpportunityId: row.content_opportunity_id,
+    contentOpportunityTitle: row.content_opportunity_title,
   };
 }
 

@@ -8,6 +8,8 @@ RSS/Atom real → coleta → classificação → decisão editorial → Notícia
 
 Na Inteligência SEO, artigos concorrentes podem originar uma pauta ou um Kit original. O artigo concorrente é tratado somente como referência de oportunidade: o sistema exige uma notícia independente relacionada no Monitoramento, reaproveita o workflow oficial da Fila e da Biblioteca e bloqueia títulos ou trechos excessivamente semelhantes antes da persistência.
 
+A Central de Conteúdos cruza Monitoramento, concorrentes e acervo próprio para identificar oportunidades evergreen reais. A análise é incremental e retomável, reutiliza a mesma infraestrutura Gemini e envia a geração pelo pipeline oficial da Fila e da Biblioteca. Consulte `docs/central-de-conteudos.md`.
+
 ## Persistência
 
 O ambiente hospedado usa PostgreSQL gerenciado, acessado por `DATABASE_URL`, com Drizzle ORM e o driver `postgres.js`. A configuração recomendada na Vercel é Neon pelo Marketplace, usando a URL com pooling. Não há binding D1, API REST da Cloudflare nem comando Wrangler no fluxo de execução ou deploy.
