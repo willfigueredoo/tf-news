@@ -71,6 +71,13 @@
       "when": 1790339999888,
       "tag": "0009_low_bastion",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1790346353617,
+      "tag": "0010_past_young_avengers",
+      "breakpoints": true
     }
   ]
 }

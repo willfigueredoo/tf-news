@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { Database } from "../db/runtime.ts";
 import { runStructuredAi, type AiConfig } from "./ai.ts";
-import { buildEditorialIntelligence, isValidEditorialInput, type IntelligenceNews } from "./editorial-intelligence.ts";
+import { buildEditorialIntelligence, isValidEditorialInput, type EditorialDecision, type IntelligenceNews } from "./editorial-intelligence.ts";
 import { loadIntelligenceNews } from "./intelligence-news.ts";
 
 export const REEL_IDEA_PILLARS = [
@@ -15,6 +15,16 @@ export const REEL_IDEA_PILLARS = [
 
 export const REEL_IDEA_STATUSES = ["new", "scripting", "review", "approved", "recorded", "archived"] as const;
 export const REEL_IDEA_PRIORITIES = ["high", "medium", "low"] as const;
+export const REEL_IDEA_CONTENT_TYPES = ["news", "evergreen"] as const;
+
+export type ReelIdeaGenerationOptions = {
+  fetchImpl?: typeof fetch;
+  contentType?: typeof REEL_IDEA_CONTENT_TYPES[number];
+  automatic?: boolean;
+  selectionWindowDays?: number | null;
+  relatedNews?: IntelligenceNews[];
+  now?: Date;
+};
 
 export const reelIdeaPayloadSchema = z.object({
   title: z.string().min(12).max(150),
@@ -53,15 +63,19 @@ export async function generateReelIdea(
   db: Database,
   config: AiConfig,
   newsId: number,
-  originType: "monitoring" | "executive",
-  options: { fetchImpl?: typeof fetch } = {},
+  originType: "monitoring" | "executive" | "automatic",
+  options: ReelIdeaGenerationOptions = {},
 ) {
   const existing = await db.prepare("SELECT id FROM reel_ideas WHERE news_item_id = ? LIMIT 1").bind(newsId).first<{ id: number }>();
   if (existing) throw new ReelIdeaConflictError(existing.id);
   const news = (await loadIntelligenceNews(db, newsId))[0];
   if (!news || !isValidEditorialInput(news)) throw new Error("A notícia não possui conteúdo e fonte suficientes para criar uma ideia.");
-  const decision = buildEditorialIntelligence([news]).newsOfTheDay;
+  const contentType = options.contentType ?? "news";
+  const automatic = options.automatic ?? false;
+  const nowDate = options.now ?? new Date();
+  const decision = buildEditorialIntelligence([news], nowDate).newsOfTheDay;
   if (!decision?.produceContent) throw new Error("A notícia não está elegível para uso editorial.");
+  const relatedNews = uniqueNews([news, ...(options.relatedNews ?? [])]).slice(0, 5);
 
   const response = await runStructuredAi({
     db,
@@ -78,10 +92,14 @@ export async function generateReelIdea(
       "Atribua dados e afirmações à fonte quando necessário e preserve neutralidade editorial.",
       "Escolha exatamente um dos seis pilares permitidos como principal e, apenas se útil, um pilar secundário diferente.",
       "A abordagem deve explicar qual recorte executivo torna o tema relevante para gestores industriais.",
+      contentType === "evergreen"
+        ? "Crie uma pauta evergreen: útil por meses, independente de uma data ou acontecimento pontual e sustentada pelos sinais recorrentes das fontes fornecidas."
+        : "Crie uma pauta de atualidade diretamente vinculada ao acontecimento informado.",
       "Retorne exclusivamente o JSON solicitado.",
     ].join(" "),
     user: JSON.stringify({
-      source: sourceSnapshot(news),
+      contentType,
+      sources: relatedNews.map(sourceSnapshot),
       editorialContext: {
         score: decision.editorialScore,
         reason: decision.decisionReason,
@@ -94,25 +112,33 @@ export async function generateReelIdea(
     retryPolicy: "high-demand",
     retryDelaysMs: [5_000, 10_000],
     fetchImpl: options.fetchImpl,
-    diagnosticContext: { newsId, originType, editorialScore: decision.editorialScore },
+    diagnosticContext: { newsId, originType, contentType, automatic, editorialScore: decision.editorialScore },
   });
-  const now = new Date().toISOString();
+  const relevance = buildReelIdeaRelevance(decision, contentType, relatedNews.length);
+  const now = nowDate.toISOString();
+  const sourceRows = relatedNews.map((item, index) => ({ id: item.id, primary: index === 0 }));
+  const sourceValues = sourceRows.map(() => "(?, ?)").join(", ");
   const inserted = await db.prepare(`
-    WITH inserted_idea AS (
+    WITH source_rows(news_item_id, is_primary) AS (VALUES ${sourceValues}),
+    inserted_idea AS (
       INSERT INTO reel_ideas (
         news_item_id, title, summary, industry_relevance, suggested_angle, suggested_copy,
         primary_pillar, secondary_pillar, priority, status, origin_type, editorial_score,
-        provider, model, request_id, source_snapshot, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'new', ?, ?, ?, ?, ?, ?, ?, ?)
+        content_type, automatic, selection_window_days, relevance_score, relevance_level,
+        relevance_breakdown, relevance_reason, provider, model, request_id, source_snapshot,
+        created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'new', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT (news_item_id) DO NOTHING
       RETURNING id
     ), inserted_source AS (
       INSERT INTO reel_idea_sources (reel_idea_id, news_item_id, is_primary, created_at)
-      SELECT id, ?, TRUE, ? FROM inserted_idea
+      SELECT inserted_idea.id, source_rows.news_item_id, source_rows.is_primary, ?
+      FROM inserted_idea CROSS JOIN source_rows
       RETURNING reel_idea_id
     )
     SELECT id FROM inserted_idea
   `).bind(
+    ...sourceRows.flatMap((item) => [item.id, item.primary]),
     news.id,
     response.data.title,
     response.data.summary,
@@ -124,13 +150,19 @@ export async function generateReelIdea(
     response.data.priority,
     originType,
     decision.editorialScore,
+    contentType,
+    automatic,
+    options.selectionWindowDays ?? null,
+    relevance.score,
+    relevance.level,
+    JSON.stringify(relevance.components),
+    relevance.reason,
     config.provider,
     config.model,
     response.requestId,
-    JSON.stringify(sourceSnapshot(news)),
+    JSON.stringify(relatedNews.map(sourceSnapshot)),
     now,
     now,
-    news.id,
     now,
   ).first<{ id: number }>();
   if (!inserted) {
@@ -138,6 +170,37 @@ export async function generateReelIdea(
     throw new ReelIdeaConflictError(conflict?.id ?? 0);
   }
   return getReelIdea(db, inserted.id);
+}
+
+export function buildReelIdeaRelevance(
+  decision: EditorialDecision,
+  contentType: typeof REEL_IDEA_CONTENT_TYPES[number],
+  sourceCount = 1,
+) {
+  const average = (...values: number[]) => values.reduce((sum, value) => sum + value, 0) / values.length;
+  const components = {
+    industrialRelevance: scoreComponent("Relevância para a indústria", average(decision.scoreBreakdown.icpFit, decision.scoreBreakdown.economicImportance), 25),
+    pillarFit: scoreComponent("Aderência ao pilar", average(decision.scoreBreakdown.icpFit, decision.scoreBreakdown.contentPotential), 20),
+    operationalImpact: scoreComponent("Impacto operacional ou logístico", average(decision.scoreBreakdown.logistics, decision.scoreBreakdown.commercialPotential), 20),
+    sourceAuthority: scoreComponent("Autoridade das fontes", average(decision.scoreBreakdown.sourceAuthority, decision.scoreBreakdown.sourceReliability), 15),
+    temporalValue: scoreComponent(
+      contentType === "evergreen" ? "Durabilidade editorial" : "Atualidade",
+      contentType === "evergreen"
+        ? Math.min(100, decision.scoreBreakdown.contentPotential * .75 + Math.min(4, sourceCount) * 8)
+        : decision.scoreBreakdown.recency,
+      10,
+    ),
+    editorialOpportunity: scoreComponent("Oportunidade editorial", average(decision.scoreBreakdown.contentPotential, decision.scoreBreakdown.authorityPotential), 10),
+  };
+  const score = Object.values(components).reduce((sum, component) => sum + component.score, 0);
+  const level = score >= 85 ? "strategic" : score >= 70 ? "high" : "medium";
+  const strongest = Object.values(components).sort((a, b) => (b.score / b.max) - (a.score / a.max)).slice(0, 2);
+  return {
+    score,
+    level,
+    components,
+    reason: `${relevanceLevelLabel(level)} por ${strongest.map((item) => item.label.toLocaleLowerCase("pt-BR")).join(" e ")}.`,
+  };
 }
 
 export async function discoverNextReelIdea(db: Database, config: AiConfig, options: { fetchImpl?: typeof fetch } = {}) {
@@ -202,6 +265,8 @@ function reelIdeaSelect() {
 }
 
 function mapReelIdea(row: Record<string, unknown>) {
+  const storedRelevanceScore = Number(row.relevance_score);
+  const displayRelevanceScore = storedRelevanceScore || Number(row.editorial_score);
   return {
     id: Number(row.id),
     newsItemId: Number(row.news_item_id),
@@ -216,6 +281,13 @@ function mapReelIdea(row: Record<string, unknown>) {
     status: String(row.status),
     originType: String(row.origin_type),
     editorialScore: Number(row.editorial_score),
+    contentType: row.content_type ? String(row.content_type) : "news",
+    automatic: Boolean(row.automatic),
+    selectionWindowDays: row.selection_window_days == null ? null : Number(row.selection_window_days),
+    relevanceScore: displayRelevanceScore,
+    relevanceLevel: storedRelevanceScore > 0 && row.relevance_level ? String(row.relevance_level) : relevanceLevel(displayRelevanceScore),
+    relevanceBreakdown: parseObject(row.relevance_breakdown),
+    relevanceReason: row.relevance_reason ? String(row.relevance_reason) : String(row.industry_relevance),
     responsible: row.responsible ? String(row.responsible) : null,
     provider: String(row.provider),
     model: String(row.model),
@@ -262,4 +334,30 @@ function parseList(value: unknown) {
   if (Array.isArray(value)) return value.map(String);
   if (typeof value !== "string") return [];
   try { const parsed = JSON.parse(value); return Array.isArray(parsed) ? parsed.map(String) : []; } catch { return []; }
+}
+
+function parseObject(value: unknown) {
+  if (value && typeof value === "object" && !Array.isArray(value)) return value as Record<string, unknown>;
+  if (typeof value !== "string") return {};
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
+  } catch { return {}; }
+}
+
+function uniqueNews(news: IntelligenceNews[]) {
+  const seen = new Set<number>();
+  return news.filter((item) => !seen.has(item.id) && seen.add(item.id));
+}
+
+function scoreComponent(label: string, value: number, max: number) {
+  return { label, score: Math.max(0, Math.min(max, Math.round(value * max / 100))), max };
+}
+
+function relevanceLevel(score: number) {
+  return score >= 85 ? "strategic" : score >= 70 ? "high" : "medium";
+}
+
+function relevanceLevelLabel(level: string) {
+  return level === "strategic" ? "Relevância estratégica" : level === "high" ? "Relevância alta" : "Relevância média";
 }

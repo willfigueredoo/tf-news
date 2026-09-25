@@ -5,6 +5,7 @@ import { useEscapeKey } from "../lib/use-escape-key";
 
 type ReelIdeaStatus = "new" | "scripting" | "review" | "approved" | "recorded" | "archived";
 type ReelIdeaPriority = "high" | "medium" | "low";
+type RelevanceComponent = { label: string; score: number; max: number };
 type ReelIdea = {
   id: number;
   newsItemId: number;
@@ -17,8 +18,15 @@ type ReelIdea = {
   secondaryPillar: string | null;
   priority: ReelIdeaPriority;
   status: ReelIdeaStatus;
-  originType: "monitoring" | "executive";
+  originType: "monitoring" | "executive" | "automatic";
   editorialScore: number;
+  contentType: "news" | "evergreen";
+  automatic: boolean;
+  selectionWindowDays: number | null;
+  relevanceScore: number;
+  relevanceLevel: "strategic" | "high" | "medium";
+  relevanceBreakdown: Record<string, RelevanceComponent>;
+  relevanceReason: string;
   responsible: string | null;
   provider: string;
   model: string;
@@ -71,6 +79,7 @@ export function ReelIdeas({ initialIdeaId = null, onOpenMonitoring, notify }: Pr
   const [activeId, setActiveId] = useState<number | null>(initialIdeaId);
   const [search, setSearch] = useState("");
   const [pillar, setPillar] = useState("all");
+  const [contentType, setContentType] = useState("all");
   const [status, setStatus] = useState("active");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -104,9 +113,10 @@ export function ReelIdeas({ initialIdeaId = null, onOpenMonitoring, notify }: Pr
     const text = `${idea.title} ${idea.summary} ${idea.primaryPillar} ${idea.news.title} ${idea.news.sourceName}`.toLocaleLowerCase("pt-BR");
     const statusMatch = status === "all" || status === "active" && idea.status !== "archived" || idea.status === status;
     return statusMatch
+      && (contentType === "all" || idea.contentType === contentType)
       && (pillar === "all" || idea.primaryPillar === pillar || idea.secondaryPillar === pillar)
       && (!search.trim() || text.includes(search.trim().toLocaleLowerCase("pt-BR")));
-  }), [ideas, pillar, search, status]);
+  }), [contentType, ideas, pillar, search, status]);
 
   async function discover() {
     if (busy || !aiConfigured) return notify("A IA ainda não está configurada.");
@@ -206,6 +216,11 @@ export function ReelIdeas({ initialIdeaId = null, onOpenMonitoring, notify }: Pr
         <option value="all">Todos os pilares</option>
         {PILLARS.map((item) => <option key={item}>{item}</option>)}
       </select>
+      <select className="filter" value={contentType} onChange={(event) => setContentType(event.target.value)} aria-label="Filtrar por tipo de conteúdo">
+        <option value="all">Atualidade e evergreen</option>
+        <option value="news">Atualidade</option>
+        <option value="evergreen">Evergreen</option>
+      </select>
       <select className="filter" value={status} onChange={(event) => setStatus(event.target.value)} aria-label="Filtrar por status">
         <option value="active">Ideias ativas</option>
         <option value="all">Todos os status</option>
@@ -223,12 +238,13 @@ export function ReelIdeas({ initialIdeaId = null, onOpenMonitoring, notify }: Pr
         <button className="reel-card-title" onClick={() => openIdea(idea.id)}>{idea.title}</button>
         <p>{idea.summary}</p>
         <div className="reel-card-tags">
+          <span className={`reel-content-type ${idea.contentType}`}>{idea.contentType === "evergreen" ? "Evergreen" : "Atualidade"}</span>
+          <span className={`reel-relevance ${idea.relevanceLevel}`}>Relevância {idea.relevanceScore}/100 · {relevanceLabel(idea.relevanceLevel)}</span>
           <span className={`reel-priority ${idea.priority}`}>{PRIORITY_LABELS[idea.priority]}</span>
           <span>{idea.news.sourceName}</span>
-          <span>Score {idea.editorialScore}</span>
         </div>
         <div className="reel-card-footer">
-          <div><small>ORIGEM</small><strong>{idea.originType === "executive" ? "Visão Executiva" : "Monitoramento"}</strong></div>
+          <div><small>ORIGEM</small><strong>{originLabel(idea)}</strong></div>
           <div><small>CRIAÇÃO</small><strong>{formatDate(idea.createdAt)}</strong></div>
           <button className="secondary" onClick={() => openIdea(idea.id)}>Abrir ideia</button>
         </div>
@@ -265,7 +281,12 @@ function IdeaDetail({ idea, busy, onBack, onMonitor, onUpdate, onCopy }: {
       <main className="reel-detail-content">
         <div className="eyebrow">Ideia para Reels · conteúdo somente leitura</div>
         <h1>{idea.title}</h1>
-        <div className="reel-detail-chips"><span>{idea.primaryPillar}</span>{idea.secondaryPillar && <span>{idea.secondaryPillar}</span>}<span>Score editorial {idea.editorialScore}/100</span></div>
+        <div className="reel-detail-chips"><span>{idea.contentType === "evergreen" ? "Evergreen" : "Atualidade"}</span><span>{idea.primaryPillar}</span>{idea.secondaryPillar && <span>{idea.secondaryPillar}</span>}<span>Relevância {idea.relevanceScore}/100 · {relevanceLabel(idea.relevanceLevel)}</span></div>
+
+        <section className="reel-relevance-panel">
+          <div className="reel-relevance-heading"><div><span>CLASSIFICAÇÃO DE RELEVÂNCIA</span><h2>{idea.relevanceScore}/100 · {relevanceLabel(idea.relevanceLevel)}</h2></div><p>{idea.relevanceReason}</p></div>
+          <div className="reel-relevance-grid">{Object.values(idea.relevanceBreakdown).map((component) => <div key={component.label}><span>{component.label}</span><strong>{component.score}/{component.max}</strong><i><b style={{ width: `${Math.round(component.score / component.max * 100)}%` }} /></i></div>)}</div>
+        </section>
 
         <section className="reel-readonly-section"><div><span>RESUMO DO ACONTECIMENTO</span><button onClick={() => void onCopy("Resumo", idea.summary)}>Copiar</button></div><p>{idea.summary}</p></section>
         <section className="reel-readonly-section"><div><span>POR QUE IMPORTA PARA A INDÚSTRIA</span><button onClick={() => void onCopy("Relevância", idea.industryRelevance)}>Copiar</button></div><p>{idea.industryRelevance}</p></section>
@@ -273,10 +294,11 @@ function IdeaDetail({ idea, busy, onBack, onMonitor, onUpdate, onCopy }: {
         <section className="reel-readonly-section reel-copy-section"><div><span>SUGESTÃO DE COPY</span><button onClick={() => void onCopy("Copy", idea.suggestedCopy)}>Copiar</button></div><p>{idea.suggestedCopy}</p></section>
 
         <section className="reel-source-panel">
-          <div className="reel-source-heading"><div><span>NOTÍCIA REAL</span><h2>{idea.news.title}</h2></div><span className="reel-origin-label">{idea.originType === "executive" ? "Visão Executiva" : "Monitoramento"}</span></div>
+          <div className="reel-source-heading"><div><span>{idea.contentType === "evergreen" ? "FONTES REAIS" : "NOTÍCIA REAL"}</span><h2>{idea.news.title}</h2></div><span className="reel-origin-label">{originLabel(idea)}</span></div>
           <p>{idea.news.excerpt}</p>
           <dl><div><dt>Veículo</dt><dd>{idea.news.sourceName}</dd></div><div><dt>Publicação</dt><dd>{formatDateTime(idea.news.publishedAt)}</dd></div><div><dt>Coleta</dt><dd>{formatDateTime(idea.news.collectedAt)}</dd></div><div><dt>ICP</dt><dd>{idea.news.primaryIcp}</dd></div><div><dt>Região</dt><dd>{idea.news.region}</dd></div><div><dt>Relevância</dt><dd>{idea.news.relevanceScore}/100</dd></div></dl>
           <div className="inline-actions"><a className="primary" href={idea.news.originalUrl} target="_blank" rel="noopener noreferrer">Abrir notícia original ↗</a><button className="secondary" onClick={onMonitor}>Ver no Monitoramento</button></div>
+          {idea.sources.length > 1 && <div className="reel-related-sources"><strong>Outras fontes consideradas</strong>{idea.sources.filter((source) => !source.isPrimary).map((source) => <a href={source.originalUrl} target="_blank" rel="noopener noreferrer" key={`${source.newsId}-${source.originalUrl}`}>{source.sourceName} · {source.title} ↗</a>)}</div>}
         </section>
       </main>
 
@@ -286,7 +308,9 @@ function IdeaDetail({ idea, busy, onBack, onMonitor, onUpdate, onCopy }: {
         <label><span>Prioridade</span><select value={idea.priority} disabled={busy} onChange={(event) => void onUpdate({ priority: event.target.value as ReelIdeaPriority })}>{Object.entries(PRIORITY_LABELS).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
         <label><span>Responsável</span><input defaultValue={idea.responsible ?? ""} disabled={busy} placeholder="Não definido" onBlur={(event) => { const next = event.target.value.trim() || null; if (next !== idea.responsible) void onUpdate({ responsible: next }); }} /></label>
         <div className="reel-property-static"><span>Pilar principal</span><strong>{idea.primaryPillar}</strong></div>
-        <div className="reel-property-static"><span>Origem</span><strong>{idea.originType === "executive" ? "Visão Executiva" : "Monitoramento"}</strong></div>
+        <div className="reel-property-static"><span>Tipo</span><strong>{idea.contentType === "evergreen" ? "Evergreen" : "Atualidade"}</strong></div>
+        <div className="reel-property-static"><span>Origem</span><strong>{originLabel(idea)}</strong></div>
+        {idea.selectionWindowDays && <div className="reel-property-static"><span>Janela editorial</span><strong>Últimos {idea.selectionWindowDays} dias</strong></div>}
         <div className="reel-property-static"><span>Fonte</span><strong>{idea.news.sourceName}</strong></div>
         <div className="reel-property-static"><span>Criada em</span><strong>{formatDateTime(idea.createdAt)}</strong></div>
         <div className="reel-readonly-notice">O título e os textos permanecem bloqueados para preservar a rastreabilidade da notícia e da análise editorial.</div>
@@ -301,4 +325,13 @@ function formatDate(value: string) {
 
 function formatDateTime(value: string) {
   return new Intl.DateTimeFormat("pt-BR", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
+}
+
+function relevanceLabel(value: ReelIdea["relevanceLevel"]) {
+  return value === "strategic" ? "Estratégica" : value === "high" ? "Alta" : "Média";
+}
+
+function originLabel(idea: Pick<ReelIdea, "originType" | "automatic">) {
+  if (idea.automatic || idea.originType === "automatic") return "Geração automática";
+  return idea.originType === "executive" ? "Visão Executiva" : "Monitoramento";
 }

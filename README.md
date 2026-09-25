@@ -10,7 +10,7 @@ Na Inteligência SEO, artigos concorrentes podem originar uma pauta ou um Kit or
 
 A Central de Conteúdos cruza Monitoramento, concorrentes e acervo próprio para identificar oportunidades evergreen reais. A análise é incremental e retomável, reutiliza a mesma infraestrutura Gemini e envia a geração pelo pipeline oficial da Fila e da Biblioteca. Consulte `docs/central-de-conteudos.md`.
 
-O módulo Ideias para Reels organiza, em cards, insumos editoriais derivados de notícias reais para a social media do CEO. Título, análise e copy-base são somente leitura; status, prioridade e responsável formam o workflow operacional. Consulte `docs/ideias-para-reels.md`.
+O módulo Ideias para Reels organiza, em cards, insumos editoriais derivados de notícias reais para a social media do CEO. Título, análise e copy-base são somente leitura; status, prioridade e responsável formam o workflow operacional. A automação cria pautas de atualidade em uma janela de 7 dias, com fallback controlado até 14 dias, e uma oportunidade evergreen semanal, sempre com relevância explicável. Consulte `docs/ideias-para-reels.md`.
 
 ## Persistência
 

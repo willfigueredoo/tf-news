@@ -689,6 +689,13 @@ export const reelIdeas = pgTable("reel_ideas", {
   status: text("status").notNull().default("new"),
   originType: text("origin_type").notNull(),
   editorialScore: integer("editorial_score").notNull(),
+  contentType: text("content_type").notNull().default("news"),
+  automatic: boolean("automatic").notNull().default(false),
+  selectionWindowDays: integer("selection_window_days"),
+  relevanceScore: integer("relevance_score").notNull().default(0),
+  relevanceLevel: text("relevance_level").notNull().default("medium"),
+  relevanceBreakdown: text("relevance_breakdown").notNull().default("{}"),
+  relevanceReason: text("relevance_reason").notNull().default(""),
   responsible: text("responsible"),
   provider: text("provider").notNull(),
   model: text("model").notNull(),
@@ -702,6 +709,7 @@ export const reelIdeas = pgTable("reel_ideas", {
   index("reel_ideas_status_idx").on(table.status, table.updatedAt),
   index("reel_ideas_pillar_idx").on(table.primaryPillar, table.priority),
   index("reel_ideas_origin_idx").on(table.originType, table.createdAt),
+  index("reel_ideas_automation_idx").on(table.automatic, table.contentType, table.createdAt),
 ]);
 
 export const reelIdeaSources = pgTable("reel_idea_sources", {

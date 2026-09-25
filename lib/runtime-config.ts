@@ -31,3 +31,13 @@ export function getWordPressConfig() {
 export function getCronSecret() {
   return process.env.CRON_SECRET ?? "";
 }
+
+export function getReelIdeaAutomationConfig() {
+  const primaryWindowDays = Math.max(1, Math.min(14, numberValue(process.env.REEL_IDEAS_PRIMARY_WINDOW_DAYS, 7)));
+  return {
+    dailyLimit: Math.max(1, Math.min(6, numberValue(process.env.REEL_IDEAS_DAILY_LIMIT, 3))),
+    primaryWindowDays,
+    fallbackWindowDays: Math.max(primaryWindowDays, Math.min(30, numberValue(process.env.REEL_IDEAS_FALLBACK_WINDOW_DAYS, 14))),
+    minimumRelevance: Math.max(40, Math.min(90, numberValue(process.env.REEL_IDEAS_MINIMUM_RELEVANCE, 55))),
+  };
+}

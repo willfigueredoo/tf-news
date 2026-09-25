@@ -207,6 +207,16 @@ try {
       (select count(*)::int from reel_ideas) as ideas,
       (select count(*)::int from reel_idea_sources) as source_relations
   `;
+  const reelIdeaColumns = await sql`
+    select column_name, data_type, is_nullable, column_default
+    from information_schema.columns
+    where table_schema = 'public' and table_name = 'reel_ideas'
+      and column_name = any(${[
+        "content_type", "automatic", "selection_window_days", "relevance_score",
+        "relevance_level", "relevance_breakdown", "relevance_reason",
+      ]})
+    order by ordinal_position
+  `;
 
   console.log(JSON.stringify({
     tables: created,
@@ -240,6 +250,7 @@ try {
     },
     reelIdeas: {
       metrics: reelIdeaMetrics,
+      automationColumns: reelIdeaColumns,
       indexes: reelIdeaIndexes,
       foreignKeys: reelIdeaForeignKeys,
     },
