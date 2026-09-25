@@ -10,6 +10,8 @@ Na Inteligência SEO, artigos concorrentes podem originar uma pauta ou um Kit or
 
 A Central de Conteúdos cruza Monitoramento, concorrentes e acervo próprio para identificar oportunidades evergreen reais. A análise é incremental e retomável, reutiliza a mesma infraestrutura Gemini e envia a geração pelo pipeline oficial da Fila e da Biblioteca. Consulte `docs/central-de-conteudos.md`.
 
+O módulo Ideias para Reels organiza, em cards, insumos editoriais derivados de notícias reais para a social media do CEO. Título, análise e copy-base são somente leitura; status, prioridade e responsável formam o workflow operacional. Consulte `docs/ideias-para-reels.md`.
+
 ## Persistência
 
 O ambiente hospedado usa PostgreSQL gerenciado, acessado por `DATABASE_URL`, com Drizzle ORM e o driver `postgres.js`. A configuração recomendada na Vercel é Neon pelo Marketplace, usando a URL com pooling. Não há binding D1, API REST da Cloudflare nem comando Wrangler no fluxo de execução ou deploy.

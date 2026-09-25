@@ -70,7 +70,8 @@ export async function runStructuredAi<T>(options: {
     | "seo_competitor_analysis"
     | "seo_opportunity_ranking"
     | "seo_topic_classification"
-    | "content_evergreen_opportunity_analysis";
+    | "content_evergreen_opportunity_analysis"
+    | "reel_idea_generation";
   schemaName: string;
   schema: ZodType<T>;
   system: string;

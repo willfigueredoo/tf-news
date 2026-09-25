@@ -674,3 +674,44 @@ export const contentOpportunityJobs = pgTable("content_opportunity_jobs", {
     .on(table.jobKey)
     .where(sql`${table.status} in ('queued', 'processing', 'retry')`),
 ]);
+
+export const reelIdeas = pgTable("reel_ideas", {
+  id: serial("id").primaryKey(),
+  newsItemId: integer("news_item_id").notNull().references(() => newsItems.id),
+  title: text("title").notNull(),
+  summary: text("summary").notNull(),
+  industryRelevance: text("industry_relevance").notNull(),
+  suggestedAngle: text("suggested_angle").notNull(),
+  suggestedCopy: text("suggested_copy").notNull(),
+  primaryPillar: text("primary_pillar").notNull(),
+  secondaryPillar: text("secondary_pillar"),
+  priority: text("priority").notNull(),
+  status: text("status").notNull().default("new"),
+  originType: text("origin_type").notNull(),
+  editorialScore: integer("editorial_score").notNull(),
+  responsible: text("responsible"),
+  provider: text("provider").notNull(),
+  model: text("model").notNull(),
+  requestId: text("request_id"),
+  sourceSnapshot: text("source_snapshot").notNull(),
+  archivedAt: text("archived_at"),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+}, (table) => [
+  uniqueIndex("reel_ideas_news_unique").on(table.newsItemId),
+  index("reel_ideas_status_idx").on(table.status, table.updatedAt),
+  index("reel_ideas_pillar_idx").on(table.primaryPillar, table.priority),
+  index("reel_ideas_origin_idx").on(table.originType, table.createdAt),
+]);
+
+export const reelIdeaSources = pgTable("reel_idea_sources", {
+  id: serial("id").primaryKey(),
+  reelIdeaId: integer("reel_idea_id").notNull().references(() => reelIdeas.id),
+  newsItemId: integer("news_item_id").notNull().references(() => newsItems.id),
+  isPrimary: boolean("is_primary").notNull().default(false),
+  createdAt: text("created_at").notNull(),
+}, (table) => [
+  uniqueIndex("reel_idea_sources_unique").on(table.reelIdeaId, table.newsItemId),
+  index("reel_idea_sources_idea_idx").on(table.reelIdeaId),
+  index("reel_idea_sources_news_idx").on(table.newsItemId),
+]);

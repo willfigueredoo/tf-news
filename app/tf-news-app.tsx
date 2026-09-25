@@ -11,8 +11,9 @@ import { SeoIntelligence, type SeoTab } from "./seo-intelligence/seo-intelligenc
 import { useSeoSyncWorker } from "./seo-intelligence/hooks/use-seo-sync-worker";
 import { SourceManager } from "./source-manager";
 import { ContentCenter } from "./content-center";
+import { ReelIdeas } from "./reel-ideas";
 
-type View = "Visão Executiva" | "Monitoramento" | "Fila Editorial" | "Biblioteca" | "Central de Conteúdos" | "Inteligência SEO" | "Configurações" | "Criar Conteúdo" | "Conteúdos";
+type View = "Visão Executiva" | "Monitoramento" | "Fila Editorial" | "Biblioteca" | "Central de Conteúdos" | "Ideias para Reels" | "Inteligência SEO" | "Configurações" | "Criar Conteúdo" | "Conteúdos";
 type WorkflowConflict = { code: string; newsId: number; queueId: number | null; queueStatus: string | null; kitId: number | null; options: string[] };
 type News = { id: number; title: string; originalUrl: string; sourceId: number; sourceName: string; domain?: string; author?: string | null; publishedAt: string; collectedAt: string; excerpt: string; content: string; region: string; logisticsImpact: "low" | "medium" | "high"; relevanceScore: number; status: string; topics: string[]; icps: string[]; primaryIcp: string; secondaryIcps: string[]; classificationReason: string; classificationMethod: string; read?: boolean; readAt?: string | null; favorite?: boolean; archived?: boolean; archivedAt?: string | null; internalNotes?: string; manualOverride?: boolean; collectionRunId?: string | null };
 type Source = { id: number; name: string; domain: string; feedUrl: string; websiteUrl: string | null; type?: string; status?: string; reliabilityScore: number; active: boolean; health?: string; priority?: number; collectionFrequencyMinutes?: number; language?: string; country?: string; region?: string; relatedIcps?: string[]; notes?: string; lastCollectedAt: string | null; lastSuccessAt: string | null; lastFailureAt: string | null; lastError: string | null; lastStatus: string; lastDurationMs: number | null; lastHttpStatus: number | null; lastItemCount: number; consecutiveFailures: number; nextCollectionAt?: string | null; archivedAt?: string | null; totalNewsCollected?: number; averageResponseMs?: number };
@@ -23,7 +24,7 @@ type OperationalLogs = { jobs: Array<Record<string, unknown>>; ai: Array<Record<
 
 const VIEWS: { name: View; icon: string }[] = [
   { name: "Visão Executiva", icon: "⌂" }, { name: "Monitoramento", icon: "◉" }, { name: "Fila Editorial", icon: "◫" }, { name: "Biblioteca", icon: "▤" },
-  { name: "Central de Conteúdos", icon: "▧" }, { name: "Inteligência SEO", icon: "◈" }, { name: "Configurações", icon: "⚙" },
+  { name: "Central de Conteúdos", icon: "▧" }, { name: "Ideias para Reels", icon: "▶" }, { name: "Inteligência SEO", icon: "◈" }, { name: "Configurações", icon: "⚙" },
 ];
 
 const VIEW_TITLES: Record<View, string> = {
@@ -32,6 +33,7 @@ const VIEW_TITLES: Record<View, string> = {
   "Fila Editorial": "Fila Editorial",
   Biblioteca: "Biblioteca Editorial",
   "Central de Conteúdos": "Central de Conteúdos",
+  "Ideias para Reels": "Banco de Ideias",
   "Inteligência SEO": "Inteligência SEO",
   Configurações: "Configurações",
   "Criar Conteúdo": "Estúdio Editorial",
@@ -48,15 +50,19 @@ function seoPath(tab: SeoTab, competitorId: number | null = null) {
   if (tab === "opportunities") return "/seo-intelligence/opportunities";
   return "/seo-intelligence";
 }
-function routeFromPath(pathname: string): { view: View; tab: SeoTab; competitorId: number | null; creatingCompetitor: boolean } {
-  if (/^\/content-center\/?$/.test(pathname)) return { view: "Central de Conteúdos", tab: "overview", competitorId: null, creatingCompetitor: false };
-  if (/^\/seo-intelligence\/competitors\/new\/?$/.test(pathname)) return { view: "Inteligência SEO", tab: "competitors", competitorId: null, creatingCompetitor: true };
+function routeFromPath(pathname: string): { view: View; tab: SeoTab; competitorId: number | null; creatingCompetitor: boolean; reelIdeaId: number | null } {
+  const base = { tab: "overview" as SeoTab, competitorId: null, creatingCompetitor: false, reelIdeaId: null };
+  const reelIdeaMatch = pathname.match(/^\/reel-ideas\/(\d+)\/?$/);
+  if (reelIdeaMatch) return { ...base, view: "Ideias para Reels", reelIdeaId: Number(reelIdeaMatch[1]) };
+  if (/^\/reel-ideas\/?$/.test(pathname)) return { ...base, view: "Ideias para Reels" };
+  if (/^\/content-center\/?$/.test(pathname)) return { ...base, view: "Central de Conteúdos" };
+  if (/^\/seo-intelligence\/competitors\/new\/?$/.test(pathname)) return { ...base, view: "Inteligência SEO", tab: "competitors", creatingCompetitor: true };
   const competitorMatch = pathname.match(/^\/seo-intelligence\/competitors\/(\d+)\/?$/);
-  if (competitorMatch) return { view: "Inteligência SEO", tab: "competitors", competitorId: Number(competitorMatch[1]), creatingCompetitor: false };
-  if (/^\/seo-intelligence\/competitors\/?$/.test(pathname)) return { view: "Inteligência SEO", tab: "competitors", competitorId: null, creatingCompetitor: false };
-  if (/^\/seo-intelligence\/opportunities\/?$/.test(pathname)) return { view: "Inteligência SEO", tab: "opportunities", competitorId: null, creatingCompetitor: false };
-  if (/^\/seo-intelligence\/?$/.test(pathname)) return { view: "Inteligência SEO", tab: "overview", competitorId: null, creatingCompetitor: false };
-  return { view: "Visão Executiva", tab: "overview", competitorId: null, creatingCompetitor: false };
+  if (competitorMatch) return { ...base, view: "Inteligência SEO", tab: "competitors", competitorId: Number(competitorMatch[1]) };
+  if (/^\/seo-intelligence\/competitors\/?$/.test(pathname)) return { ...base, view: "Inteligência SEO", tab: "competitors" };
+  if (/^\/seo-intelligence\/opportunities\/?$/.test(pathname)) return { ...base, view: "Inteligência SEO", tab: "opportunities" };
+  if (/^\/seo-intelligence\/?$/.test(pathname)) return { ...base, view: "Inteligência SEO" };
+  return { ...base, view: "Visão Executiva" };
 }
 function pushPath(pathname: string) {
   if (window.location.pathname !== pathname) window.history.pushState({}, "", pathname);
@@ -70,6 +76,7 @@ export function TFNewsApp({
   initialSeoTab = "overview",
   initialSeoCompetitorId = null,
   initialSeoCreatingCompetitor = false,
+  initialReelIdeaId = null,
 }: {
   userName: string;
   userEmail: string;
@@ -78,11 +85,13 @@ export function TFNewsApp({
   initialSeoTab?: SeoTab;
   initialSeoCompetitorId?: number | null;
   initialSeoCreatingCompetitor?: boolean;
+  initialReelIdeaId?: number | null;
 }) {
   const [view, setView] = useState<View>(initialView);
   const [seoTab, setSeoTab] = useState<SeoTab>(initialSeoTab);
   const [seoCompetitorId, setSeoCompetitorId] = useState<number | null>(initialSeoCompetitorId);
   const [seoCreatingCompetitor, setSeoCreatingCompetitor] = useState(initialSeoCreatingCompetitor);
+  const [reelIdeaId, setReelIdeaId] = useState<number | null>(initialReelIdeaId);
   useSeoSyncWorker();
   const [globalIcp, setGlobalIcp] = useState("Todos os ICPs");
   const [news, setNews] = useState<News[]>([]);
@@ -135,6 +144,7 @@ export function TFNewsApp({
       setSeoTab(route.tab);
       setSeoCompetitorId(route.competitorId);
       setSeoCreatingCompetitor(route.creatingCompetitor);
+      setReelIdeaId(route.reelIdeaId);
       window.scrollTo({ top: 0, behavior: "auto" });
     }
     window.addEventListener("popstate", handlePopState);
@@ -152,12 +162,15 @@ export function TFNewsApp({
     setView(next);
     setSeoCompetitorId(null);
     setSeoCreatingCompetitor(false);
+    if (next !== "Ideias para Reels") setReelIdeaId(null);
     if (next === "Inteligência SEO") {
       setSeoTab("overview");
       pushPath(seoPath("overview"));
     } else if (next === "Central de Conteúdos") {
       pushPath("/content-center");
-    } else if (window.location.pathname.startsWith("/seo-intelligence") || window.location.pathname.startsWith("/content-center")) {
+    } else if (next === "Ideias para Reels") {
+      pushPath("/reel-ideas");
+    } else if (window.location.pathname.startsWith("/seo-intelligence") || window.location.pathname.startsWith("/content-center") || window.location.pathname.startsWith("/reel-ideas")) {
       pushPath("/");
     }
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -240,6 +253,32 @@ export function TFNewsApp({
     finally { setBusy(false); }
   }
 
+  async function createReelIdeaFromSelected() {
+    if (liveSelected.length !== 1 || busy) return notify("Selecione exatamente uma notícia para criar a ideia de Reels.");
+    setBusy(true);
+    try {
+      const response = await fetch("/api/reel-ideas", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "create", newsId: liveSelected[0], origin: "monitoring" }),
+      });
+      const data = await response.json() as { idea?: { id: number }; ideaId?: number; error?: string };
+      const id = data.idea?.id ?? data.ideaId;
+      if (!response.ok && response.status !== 409) throw new Error(data.error ?? "Não foi possível criar a ideia para Reels.");
+      if (!id) throw new Error(data.error ?? "A ideia não foi localizada.");
+      setSelected(new Set());
+      setReelIdeaId(id);
+      setView("Ideias para Reels");
+      pushPath(`/reel-ideas/${id}`);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      notify(response.status === 409 ? "A notícia já possuía uma ideia. Abrimos o conteúdo existente." : "Ideia criada e adicionada ao banco.");
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Falha ao criar ideia para Reels.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function resolveGenerationConflict(mode: "existing" | "new_version") {
     if (!workflowConflict || busy) return;
     setBusy(true);
@@ -320,10 +359,11 @@ export function TFNewsApp({
     <main className="main"><header className="topbar"><div className="header-context"><button className="header-brand" type="button" onClick={() => chooseView("Visão Executiva")} aria-label="Ir para Painel Executivo"><span className="header-brand-name"><strong>TF</strong><em>NEWS</em></span><span className="header-brand-rule" aria-hidden="true" /></button><div className="header-copy"><div className="page-name">{VIEW_TITLES[view]}</div><div className="update-time">Atualizado às {lastUpdated}</div></div></div><div className="top-actions"><select className="global-select" value={globalIcp} onChange={(event) => setGlobalIcp(event.target.value)} aria-label="Filtrar todo o sistema por ICP"><option>Todos os ICPs</option>{ICP_CATALOG.map((icp) => <option key={icp.slug}>{icp.name}</option>)}</select><button className="theme-toggle" onClick={toggleTheme} aria-label="Alternar entre modo claro e escuro" title="Alternar tema"><span className="theme-icon-light" aria-hidden="true">☼</span><span className="theme-icon-dark" aria-hidden="true">◐</span></button><div className="user-chip" title={userEmail}><div className="avatar">{initials(userName)}</div><div className="user-copy"><strong>{userName}</strong><span>Editor</span></div></div></div></header>
       <div className="content">{dataError && <div className="notice">{dataError}</div>}
         {view === "Visão Executiva" && <ExecutiveDashboard globalIcp={globalIcp} onMonitor={() => chooseView("Monitoramento")} onLibrary={openLibraryKit} notify={notify} />}
-        {view === "Monitoramento" && <MonitoringWorkspace news={filteredNews} sources={sources} selected={selected} search={search} setSearch={setSearch} toggleNews={toggleNews} toggleAll={(ids) => setSelected(new Set(ids))} startContent={() => void startContent()} startQueue={() => void addToEditorialQueue()} refresh={refreshAll} notify={notify} busy={busy} setBusy={setBusy} aiConfigured={Boolean(aiStatus?.configured)} />}
+        {view === "Monitoramento" && <MonitoringWorkspace news={filteredNews} sources={sources} selected={selected} search={search} setSearch={setSearch} toggleNews={toggleNews} toggleAll={(ids) => setSelected(new Set(ids))} startContent={() => void startContent()} startQueue={() => void addToEditorialQueue()} startReelIdea={() => void createReelIdeaFromSelected()} refresh={refreshAll} notify={notify} busy={busy} setBusy={setBusy} aiConfigured={Boolean(aiStatus?.configured)} />}
         {view === "Fila Editorial" && <EditorialQueue initialQueueId={queueFocusId} onOpenKit={openLibraryKit} notify={notify} />}
         {view === "Biblioteca" && <EditorialIntelligence mode="library" wordpressBaseUrl={wordpressBaseUrl} initialKitId={libraryKitId} onMonitor={() => chooseView("Monitoramento")} notify={notify} />}
         {view === "Central de Conteúdos" && <ContentCenter onOpenKit={openLibraryKit} notify={notify} />}
+        {view === "Ideias para Reels" && <ReelIdeas key={`reel-ideas-${reelIdeaId ?? "list"}`} initialIdeaId={reelIdeaId} onOpenMonitoring={() => chooseView("Monitoramento")} notify={notify} />}
         {view === "Inteligência SEO" && <SeoIntelligence
           globalIcp={globalIcp}
           notify={notify}
@@ -341,7 +381,7 @@ export function TFNewsApp({
         {view === "Conteúdos" && <Contents articles={articles} busy={busy} wpConfigured={wpConfigured} openArticle={(item) => { setArticle(item); chooseView("Criar Conteúdo"); }} sendWordPress={sendWordPress} />}
         {view === "Configurações" && <Settings tab={settingsTab} setTab={setSettingsTab} sources={sources} wpConfigured={wpConfigured} aiStatus={aiStatus} logs={logs} busy={busy} setBusy={setBusy} notify={notify} refresh={refreshAll} />}
       </div></main>
-    <nav className="mobile-nav" aria-label="Navegação móvel">{VIEWS.map((item) => <button key={item.name} className={view === item.name ? "active" : ""} onClick={() => chooseView(item.name)} aria-label={item.name}><span aria-hidden="true">{item.icon}</span>{item.name === "Visão Executiva" ? "Visão" : item.name === "Fila Editorial" ? "Fila" : item.name === "Central de Conteúdos" ? "Central" : item.name === "Inteligência SEO" ? "SEO" : item.name}</button>)}</nav>{workflowConflict && <WorkflowConflictModal conflict={workflowConflict} busy={busy} onCancel={() => setWorkflowConflict(null)} onOpenQueue={openQueueItem} onOpenKit={(kitId) => { setWorkflowConflict(null); openLibraryKit(kitId); }} onGenerate={(mode) => void resolveGenerationConflict(mode)} />}{toast && <div className="toast" role="status">{toast}</div>}
+    <nav className="mobile-nav" aria-label="Navegação móvel">{VIEWS.map((item) => <button key={item.name} className={view === item.name ? "active" : ""} onClick={() => chooseView(item.name)} aria-label={item.name}><span aria-hidden="true">{item.icon}</span>{item.name === "Visão Executiva" ? "Visão" : item.name === "Fila Editorial" ? "Fila" : item.name === "Central de Conteúdos" ? "Central" : item.name === "Ideias para Reels" ? "Ideias" : item.name === "Inteligência SEO" ? "SEO" : item.name}</button>)}</nav>{workflowConflict && <WorkflowConflictModal conflict={workflowConflict} busy={busy} onCancel={() => setWorkflowConflict(null)} onOpenQueue={openQueueItem} onOpenKit={(kitId) => { setWorkflowConflict(null); openLibraryKit(kitId); }} onGenerate={(mode) => void resolveGenerationConflict(mode)} />}{toast && <div className="toast" role="status">{toast}</div>}
   </div>;
 }
 

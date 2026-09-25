@@ -8,12 +8,16 @@ export async function TFNewsPage({
   initialSeoCreatingCompetitor = false,
   openSeoIntelligence = false,
   openContentCenter = false,
+  openReelIdeas = false,
+  initialReelIdeaId = null,
 }: {
   initialSeoTab?: SeoTab;
   initialSeoCompetitorId?: number | null;
   initialSeoCreatingCompetitor?: boolean;
   openSeoIntelligence?: boolean;
   openContentCenter?: boolean;
+  openReelIdeas?: boolean;
+  initialReelIdeaId?: number | null;
 } = {}) {
   const user = await getChatGPTUser();
   const updatedAt = new Intl.DateTimeFormat("pt-BR", {
@@ -27,9 +31,10 @@ export async function TFNewsPage({
     userName={user?.displayName ?? "Administrador TF"}
     userEmail={user?.email ?? "ambiente local"}
     initialUpdatedAt={updatedAt}
-    initialView={openContentCenter ? "Central de Conteúdos" : openSeoIntelligence ? "Inteligência SEO" : "Visão Executiva"}
+    initialView={openReelIdeas ? "Ideias para Reels" : openContentCenter ? "Central de Conteúdos" : openSeoIntelligence ? "Inteligência SEO" : "Visão Executiva"}
     initialSeoTab={initialSeoTab}
     initialSeoCompetitorId={initialSeoCompetitorId}
     initialSeoCreatingCompetitor={initialSeoCreatingCompetitor}
+    initialReelIdeaId={initialReelIdeaId}
   />;
 }

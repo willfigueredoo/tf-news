@@ -18,6 +18,8 @@ const expectedTables = [
   "job_logs",
   "news_items",
   "news_item_history",
+  "reel_idea_sources",
+  "reel_ideas",
   "seo_ai_analyses",
   "seo_articles",
   "seo_authority_snapshots",
@@ -185,6 +187,26 @@ try {
       (select count(*)::int from content_opportunity_sources) as source_relations,
       (select count(*)::int from content_opportunity_jobs) as jobs
   `;
+  const reelIdeaIndexes = await sql`
+    select tablename, indexname
+    from pg_indexes
+    where schemaname = 'public' and tablename = any(${["reel_ideas", "reel_idea_sources"]})
+    order by tablename, indexname
+  `;
+  const reelIdeaForeignKeys = await sql`
+    select tc.table_name, tc.constraint_name, rc.delete_rule, rc.update_rule
+    from information_schema.table_constraints tc
+    join information_schema.referential_constraints rc
+      on rc.constraint_schema = tc.constraint_schema and rc.constraint_name = tc.constraint_name
+    where tc.constraint_schema = 'public' and tc.constraint_type = 'FOREIGN KEY'
+      and tc.table_name = any(${["reel_ideas", "reel_idea_sources"]})
+    order by tc.table_name, tc.constraint_name
+  `;
+  const [reelIdeaMetrics] = await sql`
+    select
+      (select count(*)::int from reel_ideas) as ideas,
+      (select count(*)::int from reel_idea_sources) as source_relations
+  `;
 
   console.log(JSON.stringify({
     tables: created,
@@ -215,6 +237,11 @@ try {
       metrics: contentOpportunityMetrics,
       indexes: contentOpportunityIndexes,
       foreignKeys: contentOpportunityForeignKeys,
+    },
+    reelIdeas: {
+      metrics: reelIdeaMetrics,
+      indexes: reelIdeaIndexes,
+      foreignKeys: reelIdeaForeignKeys,
     },
   }, null, 2));
 } finally {
