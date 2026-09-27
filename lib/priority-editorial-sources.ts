@@ -402,8 +402,60 @@ export const PRIORITY_EDITORIAL_SOURCES: EditorialSourceSeed[] = [
     biasOrInterestDisclosure: "Portal ligado ao ecossistema empresarial Elo/Sotreq; anúncios e análises devem ser atribuídos e cruzados.",
     capabilities: { companyEvents: true }, editorialNotes: "Referência complementar para o mercado de equipamentos. Sem RSS público confiável aprovado.",
   }),
+  source({
+    sourceKey: "pesquisa-fapesp", name: "Pesquisa FAPESP", domain: "revistapesquisa.fapesp.br", baseUrl: "https://revistapesquisa.fapesp.br",
+    feedCandidates: ["https://revistapesquisa.fapesp.br/feed/"], aliases: ["Revista Pesquisa FAPESP"],
+    category: "Ciência / Tecnologia / Inovação", subcategories: ["engenharia", "materiais", "automação", "energia", "pesquisa aplicada"],
+    authorityLevel: "high", sourceType: "academic", editorialRole: "research", primaryOrSecondary: "secondary",
+    reliability: 91, priority: 88, updateFrequencyMinutes: 720,
+    topicsAllowed: ["tecnologia industrial", "inovação", "engenharia", "novos materiais", "automação", "energia", "pesquisa aplicada"],
+    relatedIcps: Object.values(ICP), requiresCrossCheck: true,
+    editorialNotes: "Veículo de divulgação científica da FAPESP. Resultados e números devem permanecer atribuídos aos estudos e pesquisadores citados.",
+  }),
+  source({
+    sourceKey: "agencia-infra", name: "Agência iNFRA", domain: "agenciainfra.com", baseUrl: "https://agenciainfra.com",
+    feedCandidates: ["https://agenciainfra.com/blog/feed/"], aliases: ["Agência Infra"],
+    category: "Infraestrutura / Transporte / Energia", subcategories: ["rodovias", "ferrovias", "portos", "energia", "saneamento", "regulação"],
+    authorityLevel: "high", sourceType: "sector_press", editorialRole: "discovery", primaryOrSecondary: "secondary",
+    reliability: 88, priority: 91, updateFrequencyMinutes: 360,
+    topicsAllowed: ["infraestrutura", "transportes", "rodovias", "ferrovias", "portos", "energia", "saneamento", "concessões"],
+    relatedIcps: Object.values(ICP), requiresCrossCheck: true, minimumConfirmationSources: 2,
+    editorialNotes: "Cobertura especializada de infraestrutura. Atos regulatórios e números oficiais devem ser confirmados na fonte primária indicada.",
+  }),
+  source({
+    sourceKey: "mecanica-online", name: "Mecânica Online", domain: "mecanicaonline.com.br", baseUrl: "https://mecanicaonline.com.br",
+    feedCandidates: ["https://mecanicaonline.com.br/feed/"], aliases: ["Mecânica Online®"],
+    category: "Indústria Automotiva / Máquinas", subcategories: ["veículos pesados", "mobilidade", "engenharia", "tecnologia", "componentes"],
+    authorityLevel: "medium", sourceType: "sector_press", editorialRole: "discovery", primaryOrSecondary: "secondary",
+    reliability: 81, priority: 84, updateFrequencyMinutes: 360,
+    topicsAllowed: ["indústria automotiva", "caminhões", "veículos pesados", "máquinas", "engenharia", "tecnologia industrial", "componentes"],
+    relatedIcps: [ICP.machines, ICP.steel, ICP.plastics, ICP.acm], requiresCrossCheck: true,
+    editorialNotes: "Veículo especializado em engenharia automotiva e mobilidade; anúncios de fabricantes devem ser tratados como informações corporativas atribuídas.",
+  }),
+  source({
+    sourceKey: "petronoticias", name: "Petronotícias", domain: "petronoticias.com.br", baseUrl: "https://petronoticias.com.br",
+    feedCandidates: ["https://petronoticias.com.br/feed/"], aliases: ["PetroNotícias"],
+    category: "Energia / Petróleo / Indústria", subcategories: ["óleo e gás", "energia", "indústria naval", "portos", "projetos industriais"],
+    authorityLevel: "medium", sourceType: "sector_press", editorialRole: "discovery", primaryOrSecondary: "secondary",
+    reliability: 82, priority: 86, updateFrequencyMinutes: 360,
+    topicsAllowed: ["óleo e gás", "energia", "indústria naval", "portos", "investimentos industriais", "fornecedores", "infraestrutura"],
+    relatedIcps: [ICP.machines, ICP.chemical, ICP.steel, ICP.paints, ICP.acm], requiresCrossCheck: true,
+    editorialNotes: "Cobertura setorial de energia e projetos industriais; confirmar investimentos, valores e cronogramas em fontes primárias quando disponíveis.",
+  }),
+  source({
+    sourceKey: "ibram", name: "Instituto Brasileiro de Mineração — IBRAM", domain: "ibram.org.br", baseUrl: "https://ibram.org.br",
+    feedCandidates: ["https://ibram.org.br/feed/"], aliases: ["IBRAM", "Instituto Brasileiro de Mineração"],
+    category: "Mineração / Indústria Pesada", subcategories: ["mineração", "minerais críticos", "investimentos", "segurança", "sustentabilidade"],
+    authorityLevel: "high", sourceType: "association", editorialRole: "research", primaryOrSecondary: "primary",
+    reliability: 88, priority: 88, updateFrequencyMinutes: 1440,
+    topicsAllowed: ["mineração", "minerais críticos", "investimentos industriais", "segurança de barragens", "sustentabilidade", "comércio exterior"],
+    relatedIcps: [ICP.machines, ICP.chemical, ICP.steel], requiresCrossCheck: true, minimumConfirmationSources: 2,
+    biasOrInterestDisclosure: "Entidade representativa da mineração; atribuir dados e posições institucionais ao IBRAM e cruzar fatos externos.",
+    capabilities: { statistics: true, companyEvents: true, internationalTrade: true },
+    editorialNotes: "Primária para levantamentos e comunicados próprios; fatos externos e projeções exigem confirmação independente.",
+  }),
 ];
 
-if (PRIORITY_EDITORIAL_SOURCES.length !== 50) {
-  throw new Error(`A whitelist prioritária precisa conter 50 fontes; recebeu ${PRIORITY_EDITORIAL_SOURCES.length}.`);
+if (PRIORITY_EDITORIAL_SOURCES.length !== 55) {
+  throw new Error(`A whitelist prioritária precisa conter 55 fontes; recebeu ${PRIORITY_EDITORIAL_SOURCES.length}.`);
 }

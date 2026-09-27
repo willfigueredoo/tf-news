@@ -3,16 +3,19 @@ import { inspectFeed } from "../lib/ingestion.ts";
 import { PRIORITY_EDITORIAL_SOURCES } from "../lib/priority-editorial-sources.ts";
 import { calculateSourceAuthorityScore, isRecentFeedItem } from "../lib/source-governance.ts";
 
-const SEED_VERSION = "2026.07.20-sector-wave-2";
+const SEED_VERSION = "2026.09.27-industry-wave-3";
 const AGRO_WAVE_1_KEYS = ["globo-rural", "safras-mercado", "farmnews"];
 const SECTOR_WAVE_2_ACTIVE_KEYS = ["cfq", "sinproquim", "plastico", "frota-cia", "logweb", "abiec", "feed-food"];
 const SECTOR_WAVE_2_REFERENCE_KEYS = ["revista-mt", "sobratema", "abimaq", "abiquim", "portal-elo"];
 const SECTOR_WAVE_2_KEYS = [...SECTOR_WAVE_2_ACTIVE_KEYS, ...SECTOR_WAVE_2_REFERENCE_KEYS];
+const INDUSTRY_WAVE_3_KEYS = ["pesquisa-fapesp", "agencia-infra", "mecanica-online", "petronoticias", "ibram"];
 const mode = process.argv.includes("--apply") ? "apply" : process.argv.includes("--verify-only") ? "verify" : null;
 const scope = process.argv.includes("--agro-wave-1")
   ? "agro-wave-1"
   : process.argv.includes("--sector-wave-2")
     ? "sector-wave-2"
+    : process.argv.includes("--industry-wave-3")
+      ? "industry-wave-3"
     : "all";
 
 if (!mode) {
@@ -23,6 +26,8 @@ if (!mode) {
     ? AGRO_WAVE_1_KEYS
     : scope === "sector-wave-2"
       ? SECTOR_WAVE_2_KEYS
+      : scope === "industry-wave-3"
+        ? INDUSTRY_WAVE_3_KEYS
       : null;
   const selectedSources = scopedKeys
     ? PRIORITY_EDITORIAL_SOURCES.filter((source) => scopedKeys.includes(source.sourceKey))
@@ -32,6 +37,9 @@ if (!mode) {
   }
   if (scope === "sector-wave-2" && selectedSources.length !== SECTOR_WAVE_2_KEYS.length) {
     throw new Error("A onda setorial 2 precisa conter exatamente as 12 fontes aprovadas.");
+  }
+  if (scope === "industry-wave-3" && selectedSources.length !== INDUSTRY_WAVE_3_KEYS.length) {
+    throw new Error("A onda industrial 3 precisa conter exatamente as cinco fontes aprovadas.");
   }
   const results = await verifyAll(selectedSources, 4);
   const summary = summarize(results);
@@ -61,6 +69,9 @@ if (!mode) {
     if (invalidActive.length || invalidReferences.length) {
       throw new Error(`A onda setorial 2 foi interrompida: feeds inválidos=${invalidActive.map((item) => item.sourceKey).join(",") || "nenhum"}; referências inválidas=${invalidReferences.map((item) => item.sourceKey).join(",") || "nenhuma"}.`);
     }
+  }
+  if (mode === "apply" && scope === "industry-wave-3" && results.some((result) => !result.activeForCollection)) {
+    throw new Error(`A onda industrial 3 foi interrompida porque feeds não foram validados: ${results.filter((item) => !item.activeForCollection).map((item) => item.sourceKey).join(",")}.`);
   }
   if (mode === "apply") await applySeed(results);
 }

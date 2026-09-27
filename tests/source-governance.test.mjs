@@ -9,8 +9,8 @@ import {
   sourceEditorialDisposition,
 } from "../lib/source-governance.ts";
 
-test("mantém whitelist prioritária com 50 chaves estáveis e sem fontes fictícias ativas", () => {
-  assert.equal(PRIORITY_EDITORIAL_SOURCES.length, 50);
+test("mantém whitelist prioritária com 55 chaves estáveis e sem fontes fictícias ativas", () => {
+  assert.equal(PRIORITY_EDITORIAL_SOURCES.length, 55);
   const keys = PRIORITY_EDITORIAL_SOURCES.map((source) => source.sourceKey);
   assert.equal(new Set(keys).size, keys.length);
   assert.equal(PRIORITY_EDITORIAL_SOURCES.some((source) => source.relatedIcps.includes("Todos os ICPs")), false);
@@ -38,6 +38,11 @@ test("trata fontes sem RSS confirmado como referência e candidatos como dados n
     "logweb",
     "abiec",
     "feed-food",
+    "pesquisa-fapesp",
+    "agencia-infra",
+    "mecanica-online",
+    "petronoticias",
+    "ibram",
   ]);
 });
 
@@ -65,6 +70,17 @@ test("onda setorial 2 separa sete feeds operacionais de cinco referências sem R
   assert.ok(active.some((source) => source.relatedIcps.includes("Indústria Química")));
   assert.ok(active.some((source) => source.category.includes("Transporte Rodoviário")));
   assert.ok(active.some((source) => source.relatedIcps.includes("Agronegócio")));
+});
+
+test("onda industrial 3 adiciona cinco feeds reais com cobertura setorial complementar", () => {
+  const keys = ["pesquisa-fapesp", "agencia-infra", "mecanica-online", "petronoticias", "ibram"];
+  const sources = PRIORITY_EDITORIAL_SOURCES.filter((source) => keys.includes(source.sourceKey));
+  assert.deepEqual(sources.map((source) => source.sourceKey), keys);
+  assert.ok(sources.every((source) => source.feedCandidates.length === 1));
+  assert.ok(sources.some((source) => source.topicsAllowed.includes("tecnologia industrial")));
+  assert.ok(sources.some((source) => source.topicsAllowed.includes("infraestrutura")));
+  assert.ok(sources.some((source) => source.topicsAllowed.includes("mineração")));
+  assert.ok(sources.every((source) => source.requiresCrossCheck));
 });
 
 test("calcula autoridade com base por tipo e penalidades cumulativas", () => {
@@ -131,6 +147,7 @@ test("seed usa transação e conflito idempotente sem apagar ou sobrescrever con
   assert.match(implementation, /ON CONFLICT \(feed_url\) DO NOTHING/);
   assert.match(implementation, /--agro-wave-1/);
   assert.match(implementation, /--sector-wave-2/);
+  assert.match(implementation, /--industry-wave-3/);
   assert.match(implementation, /preflightSourceIdentities/);
   assert.match(implementation, /feedAliases/);
   assert.doesNotMatch(implementation, /\b(?:DELETE\s+FROM|TRUNCATE|DROP\s+TABLE)\b/i);
