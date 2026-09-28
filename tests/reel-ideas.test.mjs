@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   REEL_IDEA_PILLARS,
   buildReelIdeaRelevance,
+  buildReelIdeaSourceValues,
   reelIdeaActionSchema,
   reelIdeaPayloadSchema,
   reelIdeaUpdateSchema,
@@ -96,6 +97,15 @@ test("API centraliza Gemini, protege duplicidade e persiste fonte rastreável", 
   assert.match(service, /INSERT INTO reel_idea_sources/);
   assert.match(route, /status: 409/);
   assert.doesNotMatch(service, /new GoogleGenerativeAI|GoogleGenAI/);
+});
+
+test("persistência tipa os relacionamentos de fonte para o PostgreSQL", () => {
+  const values = buildReelIdeaSourceValues(2);
+  assert.equal(
+    values,
+    "(CAST(? AS integer), CAST(? AS boolean)), (CAST(? AS integer), CAST(? AS boolean))",
+  );
+  assert.throws(() => buildReelIdeaSourceValues(0), /fonte rastreável/i);
 });
 
 test("interface usa cards, detalhe somente leitura e notícia original", async () => {

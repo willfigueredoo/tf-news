@@ -117,7 +117,7 @@ export async function generateReelIdea(
   const relevance = buildReelIdeaRelevance(decision, contentType, relatedNews.length);
   const now = nowDate.toISOString();
   const sourceRows = relatedNews.map((item, index) => ({ id: item.id, primary: index === 0 }));
-  const sourceValues = sourceRows.map(() => "(?, ?)").join(", ");
+  const sourceValues = buildReelIdeaSourceValues(sourceRows.length);
   const inserted = await db.prepare(`
     WITH source_rows(news_item_id, is_primary) AS (VALUES ${sourceValues}),
     inserted_idea AS (
@@ -170,6 +170,14 @@ export async function generateReelIdea(
     throw new ReelIdeaConflictError(conflict?.id ?? 0);
   }
   return getReelIdea(db, inserted.id);
+}
+
+export function buildReelIdeaSourceValues(sourceCount: number) {
+  if (!Number.isInteger(sourceCount) || sourceCount < 1) throw new Error("Ao menos uma fonte rastreável é obrigatória.");
+  return Array.from(
+    { length: sourceCount },
+    () => "(CAST(? AS integer), CAST(? AS boolean))",
+  ).join(", ");
 }
 
 export function buildReelIdeaRelevance(
