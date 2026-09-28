@@ -1,6 +1,6 @@
 import { getRuntimeDb } from "../../../../db/runtime";
 import { runReelIdeaAutomation } from "../../../../lib/reel-idea-automation";
-import { getAiConfig, getCronSecret, getReelIdeaAutomationConfig } from "../../../../lib/runtime-config";
+import { getAiConfig, getCronSecret, getManusConfig, getReelIdeaAutomationConfig } from "../../../../lib/runtime-config";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -17,6 +17,7 @@ export async function GET(request: Request) {
       getAiConfig(),
       getReelIdeaAutomationConfig(),
       mode,
+      { manus: getManusConfig() },
     );
     return Response.json(result, { status: result.status === "locked" ? 409 : 200 });
   } catch (error) {

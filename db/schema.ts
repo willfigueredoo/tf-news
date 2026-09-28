@@ -723,3 +723,35 @@ export const reelIdeaSources = pgTable("reel_idea_sources", {
   index("reel_idea_sources_idea_idx").on(table.reelIdeaId),
   index("reel_idea_sources_news_idx").on(table.newsItemId),
 ]);
+
+export const reelIdeaResearchJobs = pgTable("reel_idea_research_jobs", {
+  id: serial("id").primaryKey(),
+  newsItemId: integer("news_item_id").notNull().references(() => newsItems.id),
+  reelIdeaId: integer("reel_idea_id").references(() => reelIdeas.id),
+  taskId: text("task_id"),
+  taskUrl: text("task_url"),
+  requestId: text("request_id"),
+  provider: text("provider").notNull().default("manus"),
+  agentProfile: text("agent_profile").notNull().default("lite"),
+  status: text("status").notNull().default("submitting"),
+  originType: text("origin_type").notNull(),
+  contentType: text("content_type").notNull().default("news"),
+  automatic: boolean("automatic").notNull().default(false),
+  selectionWindowDays: integer("selection_window_days"),
+  relatedNewsIds: text("related_news_ids").notNull().default("[]"),
+  researchPayload: text("research_payload"),
+  attempts: integer("attempts").notNull().default(0),
+  lastEventId: text("last_event_id"),
+  errorMessage: text("error_message"),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+  completedAt: text("completed_at"),
+}, (table) => [
+  uniqueIndex("reel_idea_research_jobs_task_unique").on(table.taskId),
+  uniqueIndex("reel_idea_research_jobs_event_unique").on(table.lastEventId),
+  index("reel_idea_research_jobs_queue_idx").on(table.status, table.updatedAt),
+  index("reel_idea_research_jobs_news_idx").on(table.newsItemId, table.createdAt),
+  uniqueIndex("reel_idea_research_jobs_active_news_unique")
+    .on(table.newsItemId)
+    .where(sql`${table.status} in ('submitting', 'researching', 'ready', 'generating', 'waiting')`),
+]);

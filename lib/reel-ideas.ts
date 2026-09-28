@@ -3,6 +3,7 @@ import type { Database } from "../db/runtime.ts";
 import { runStructuredAi, type AiConfig } from "./ai.ts";
 import { buildEditorialIntelligence, isValidEditorialInput, type EditorialDecision, type IntelligenceNews } from "./editorial-intelligence.ts";
 import { loadIntelligenceNews } from "./intelligence-news.ts";
+import type { ManusResearch } from "./manus.ts";
 
 export const REEL_IDEA_PILLARS = [
   "Inteligência de mercado industrial",
@@ -23,6 +24,8 @@ export type ReelIdeaGenerationOptions = {
   automatic?: boolean;
   selectionWindowDays?: number | null;
   relatedNews?: IntelligenceNews[];
+  researchContext?: ManusResearch;
+  researchJobId?: number;
   now?: Date;
 };
 
@@ -107,12 +110,25 @@ export async function generateReelIdea(
         governance: decision.sourceGovernance,
       },
       pillars: REEL_IDEA_PILLARS,
+      ...(options.researchContext ? {
+        externalResearch: {
+          ...options.researchContext,
+          instruction: "Use este levantamento apenas como contexto factual. Preserve atribuições e não copie formulações das fontes.",
+        },
+      } : {}),
     }),
     maxOutputTokens: 1_000,
     retryPolicy: "high-demand",
     retryDelaysMs: [5_000, 10_000],
     fetchImpl: options.fetchImpl,
-    diagnosticContext: { newsId, originType, contentType, automatic, editorialScore: decision.editorialScore },
+    diagnosticContext: {
+      newsId,
+      originType,
+      contentType,
+      automatic,
+      editorialScore: decision.editorialScore,
+      ...(options.researchJobId ? { researchJobId: options.researchJobId } : {}),
+    },
   });
   const relevance = buildReelIdeaRelevance(decision, contentType, relatedNews.length);
   const now = nowDate.toISOString();

@@ -19,6 +19,7 @@ const expectedTables = [
   "news_items",
   "news_item_history",
   "reel_idea_sources",
+  "reel_idea_research_jobs",
   "reel_ideas",
   "seo_ai_analyses",
   "seo_articles",
@@ -190,7 +191,7 @@ try {
   const reelIdeaIndexes = await sql`
     select tablename, indexname
     from pg_indexes
-    where schemaname = 'public' and tablename = any(${["reel_ideas", "reel_idea_sources"]})
+    where schemaname = 'public' and tablename = any(${["reel_ideas", "reel_idea_sources", "reel_idea_research_jobs"]})
     order by tablename, indexname
   `;
   const reelIdeaForeignKeys = await sql`
@@ -199,13 +200,14 @@ try {
     join information_schema.referential_constraints rc
       on rc.constraint_schema = tc.constraint_schema and rc.constraint_name = tc.constraint_name
     where tc.constraint_schema = 'public' and tc.constraint_type = 'FOREIGN KEY'
-      and tc.table_name = any(${["reel_ideas", "reel_idea_sources"]})
+      and tc.table_name = any(${["reel_ideas", "reel_idea_sources", "reel_idea_research_jobs"]})
     order by tc.table_name, tc.constraint_name
   `;
   const [reelIdeaMetrics] = await sql`
     select
       (select count(*)::int from reel_ideas) as ideas,
-      (select count(*)::int from reel_idea_sources) as source_relations
+      (select count(*)::int from reel_idea_sources) as source_relations,
+      (select count(*)::int from reel_idea_research_jobs) as research_jobs
   `;
   const reelIdeaColumns = await sql`
     select column_name, data_type, is_nullable, column_default

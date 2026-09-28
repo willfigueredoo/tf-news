@@ -92,6 +92,7 @@ export function TFNewsApp({
   const [seoCompetitorId, setSeoCompetitorId] = useState<number | null>(initialSeoCompetitorId);
   const [seoCreatingCompetitor, setSeoCreatingCompetitor] = useState(initialSeoCreatingCompetitor);
   const [reelIdeaId, setReelIdeaId] = useState<number | null>(initialReelIdeaId);
+  const [reelResearchJobId, setReelResearchJobId] = useState<number | null>(null);
   useSeoSyncWorker();
   const [globalIcp, setGlobalIcp] = useState("Todos os ICPs");
   const [news, setNews] = useState<News[]>([]);
@@ -262,12 +263,23 @@ export function TFNewsApp({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "create", newsId: liveSelected[0], origin: "monitoring" }),
       });
-      const data = await response.json() as { idea?: { id: number }; ideaId?: number; error?: string };
+      const data = await response.json() as { idea?: { id: number }; ideaId?: number; researchJob?: { id: number }; error?: string };
+      if (response.status === 202 && data.researchJob) {
+        setSelected(new Set());
+        setReelIdeaId(null);
+        setReelResearchJobId(data.researchJob.id);
+        setView("Ideias para Reels");
+        pushPath("/reel-ideas");
+        window.scrollTo({ top: 0, behavior: "smooth" });
+        notify("Pesquisa iniciada no Manus. Você pode continuar usando o TF News enquanto ela é concluída.");
+        return;
+      }
       const id = data.idea?.id ?? data.ideaId;
       if (!response.ok && response.status !== 409) throw new Error(data.error ?? "Não foi possível criar a ideia para Reels.");
       if (!id) throw new Error(data.error ?? "A ideia não foi localizada.");
       setSelected(new Set());
       setReelIdeaId(id);
+      setReelResearchJobId(null);
       setView("Ideias para Reels");
       pushPath(`/reel-ideas/${id}`);
       window.scrollTo({ top: 0, behavior: "smooth" });
@@ -363,7 +375,7 @@ export function TFNewsApp({
         {view === "Fila Editorial" && <EditorialQueue initialQueueId={queueFocusId} onOpenKit={openLibraryKit} notify={notify} />}
         {view === "Biblioteca" && <EditorialIntelligence mode="library" wordpressBaseUrl={wordpressBaseUrl} initialKitId={libraryKitId} onMonitor={() => chooseView("Monitoramento")} notify={notify} />}
         {view === "Central de Conteúdos" && <ContentCenter onOpenKit={openLibraryKit} notify={notify} />}
-        {view === "Ideias para Reels" && <ReelIdeas key={`reel-ideas-${reelIdeaId ?? "list"}`} initialIdeaId={reelIdeaId} onOpenMonitoring={() => chooseView("Monitoramento")} notify={notify} />}
+        {view === "Ideias para Reels" && <ReelIdeas key={`reel-ideas-${reelIdeaId ?? "list"}-${reelResearchJobId ?? "idle"}`} initialIdeaId={reelIdeaId} initialResearchJobId={reelResearchJobId} onOpenMonitoring={() => chooseView("Monitoramento")} notify={notify} />}
         {view === "Inteligência SEO" && <SeoIntelligence
           globalIcp={globalIcp}
           notify={notify}

@@ -41,3 +41,14 @@ export function getReelIdeaAutomationConfig() {
     minimumRelevance: Math.max(40, Math.min(90, numberValue(process.env.REEL_IDEAS_MINIMUM_RELEVANCE, 55))),
   };
 }
+
+export function getManusConfig() {
+  const profile = process.env.MANUS_AGENT_PROFILE?.trim().toLowerCase();
+  return {
+    apiKey: process.env.MANUS_API_KEY?.trim() ?? "",
+    baseUrl: (process.env.MANUS_API_BASE_URL?.trim() || "https://api.manus.ai").replace(/\/+$/, ""),
+    agentProfile: profile === "standard" || profile === "max" ? profile : "lite",
+    webhookPublicKey: process.env.MANUS_WEBHOOK_PUBLIC_KEY?.trim().replace(/\\n/g, "\n") ?? "",
+    timeoutMs: Math.max(3_000, Math.min(30_000, numberValue(process.env.MANUS_TIMEOUT_MS, 12_000))),
+  } as const;
+}

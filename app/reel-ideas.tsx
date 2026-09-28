@@ -6,6 +6,12 @@ import { useEscapeKey } from "../lib/use-escape-key";
 type ReelIdeaStatus = "new" | "scripting" | "review" | "approved" | "recorded" | "archived";
 type ReelIdeaPriority = "high" | "medium" | "low";
 type RelevanceComponent = { label: string; score: number; max: number };
+type ReelIdeaResearchJob = {
+  id: number;
+  status: "submitting" | "researching" | "ready" | "generating" | "waiting" | "completed" | "failed";
+  ideaId: number | null;
+  error: string | null;
+};
 type ReelIdea = {
   id: number;
   newsItemId: number;
@@ -52,6 +58,7 @@ type ReelIdea = {
 
 type Props = {
   initialIdeaId?: number | null;
+  initialResearchJobId?: number | null;
   onOpenMonitoring: () => void;
   notify: (message: string) => void;
 };
@@ -74,7 +81,7 @@ const PILLARS = [
   "Logística sob a perspectiva da indústria",
 ];
 
-export function ReelIdeas({ initialIdeaId = null, onOpenMonitoring, notify }: Props) {
+export function ReelIdeas({ initialIdeaId = null, initialResearchJobId = null, onOpenMonitoring, notify }: Props) {
   const [ideas, setIdeas] = useState<ReelIdea[]>([]);
   const [activeId, setActiveId] = useState<number | null>(initialIdeaId);
   const [search, setSearch] = useState("");
@@ -85,12 +92,13 @@ export function ReelIdeas({ initialIdeaId = null, onOpenMonitoring, notify }: Pr
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [aiConfigured, setAiConfigured] = useState(false);
+  const [researchJobId, setResearchJobId] = useState<number | null>(initialResearchJobId);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const response = await fetch("/api/reel-ideas?includeArchived=true", { cache: "no-store" });
-      const data = await response.json() as { ideas?: ReelIdea[]; aiConfigured?: boolean; error?: string };
+      const data = await response.json() as { ideas?: ReelIdea[]; aiConfigured?: boolean; manusConfigured?: boolean; error?: string };
       if (!response.ok) throw new Error(data.error ?? "Não foi possível carregar o banco de ideias.");
       setIdeas(data.ideas ?? []);
       setAiConfigured(Boolean(data.aiConfigured));
@@ -106,6 +114,34 @@ export function ReelIdeas({ initialIdeaId = null, onOpenMonitoring, notify }: Pr
     const timer = window.setTimeout(() => { void load(); }, 0);
     return () => window.clearTimeout(timer);
   }, [load]);
+  useEffect(() => {
+    if (!researchJobId) return;
+    let stopped = false;
+    const poll = async () => {
+      try {
+        const response = await fetch(`/api/reel-idea-research?id=${researchJobId}`, { cache: "no-store" });
+        const data = await response.json() as { researchJob?: ReelIdeaResearchJob; error?: string };
+        if (!response.ok || !data.researchJob) throw new Error(data.error ?? "Não foi possível acompanhar a pesquisa.");
+        const job = data.researchJob;
+        if (job.status === "completed" && job.ideaId) {
+          if (stopped) return;
+          setResearchJobId(null);
+          await load();
+          openIdea(job.ideaId);
+          notify("Pesquisa concluída e nova ideia criada com apoio do Manus e do Gemini.");
+        } else if (job.status === "failed") {
+          if (stopped) return;
+          setResearchJobId(null);
+          notify(job.error ?? "A pesquisa editorial não foi concluída.");
+        }
+      } catch (pollError) {
+        if (!stopped) notify(pollError instanceof Error ? pollError.message : "Não foi possível acompanhar a pesquisa.");
+      }
+    };
+    void poll();
+    const timer = window.setInterval(() => { void poll(); }, 5_000);
+    return () => { stopped = true; window.clearInterval(timer); };
+  }, [load, notify, researchJobId]);
   useEscapeKey(() => closeIdea(), Boolean(activeId));
 
   const active = ideas.find((idea) => idea.id === activeId) ?? null;
@@ -127,11 +163,15 @@ export function ReelIdeas({ initialIdeaId = null, onOpenMonitoring, notify }: Pr
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "discover" }),
       });
-      const data = await response.json() as { idea?: ReelIdea; error?: string; ideaId?: number };
+      const data = await response.json() as { idea?: ReelIdea; researchJob?: ReelIdeaResearchJob; error?: string; ideaId?: number };
       if (response.status === 409 && data.ideaId) {
         await load();
         openIdea(data.ideaId);
         return notify("Esta notícia já estava no banco de ideias.");
+      }
+      if (response.status === 202 && data.researchJob) {
+        setResearchJobId(data.researchJob.id);
+        return notify("Pesquisa iniciada no Manus. Você pode continuar usando o TF News enquanto ela é concluída.");
       }
       if (!response.ok || !data.idea) throw new Error(data.error ?? "Nenhuma ideia foi criada.");
       await load();
@@ -204,8 +244,8 @@ export function ReelIdeas({ initialIdeaId = null, onOpenMonitoring, notify }: Pr
       </div>
       <div className="inline-actions">
         <span className="source-meta">{ideas.filter((idea) => idea.status !== "archived").length} ideia(s) ativa(s)</span>
-        <button className={`primary ${busy ? "is-loading" : ""}`} disabled={busy || !aiConfigured} onClick={() => void discover()}>
-          {busy ? "Buscando…" : "Buscar próxima ideia"}
+        <button className={`primary ${busy ? "is-loading" : ""}`} disabled={busy || !aiConfigured || Boolean(researchJobId)} onClick={() => void discover()}>
+          {busy ? "Iniciando…" : researchJobId ? "Pesquisa em andamento…" : "Buscar próxima ideia"}
         </button>
       </div>
     </div>
@@ -249,7 +289,7 @@ export function ReelIdeas({ initialIdeaId = null, onOpenMonitoring, notify }: Pr
           <button className="secondary" onClick={() => openIdea(idea.id)}>Abrir ideia</button>
         </div>
       </article>)}</div>
-      : <div className="card empty reel-ideas-empty"><strong>Nenhuma ideia encontrada.</strong><span>Selecione uma notícia no Monitoramento ou busque a próxima oportunidade editorial.</span><div className="inline-actions"><button className="secondary" onClick={onOpenMonitoring}>Abrir Monitoramento</button><button className="primary" disabled={!aiConfigured || busy} onClick={() => void discover()}>Buscar próxima ideia</button></div></div>}
+      : <div className="card empty reel-ideas-empty"><strong>Nenhuma ideia encontrada.</strong><span>Selecione uma notícia no Monitoramento ou busque a próxima oportunidade editorial.</span><div className="inline-actions"><button className="secondary" onClick={onOpenMonitoring}>Abrir Monitoramento</button><button className="primary" disabled={!aiConfigured || busy || Boolean(researchJobId)} onClick={() => void discover()}>{researchJobId ? "Pesquisa em andamento…" : "Buscar próxima ideia"}</button></div></div>}
   </>;
 }
 

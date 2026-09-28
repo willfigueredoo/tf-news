@@ -15,6 +15,7 @@ export async function GET() {
         to_regclass('public.job_logs') AS job_logs,
         to_regclass('public.reel_ideas') AS reel_ideas,
         to_regclass('public.reel_idea_sources') AS reel_idea_sources,
+        to_regclass('public.reel_idea_research_jobs') AS reel_idea_research_jobs,
         EXISTS (
           SELECT 1 FROM information_schema.columns
           WHERE table_schema = 'public' AND table_name = 'reel_ideas'

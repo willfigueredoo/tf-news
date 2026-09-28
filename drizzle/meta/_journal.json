@@ -78,6 +78,13 @@
       "when": 1790346353617,
       "tag": "0010_past_young_avengers",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1790624538644,
+      "tag": "0011_great_mauler",
+      "breakpoints": true
     }
   ]
 }

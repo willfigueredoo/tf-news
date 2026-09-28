@@ -12,7 +12,9 @@ import {
   reelIdeaUpdateSchema,
   updateReelIdeaWorkflow,
 } from "../../../lib/reel-ideas";
-import { getAiConfig } from "../../../lib/runtime-config";
+import { getAiConfig, getManusConfig } from "../../../lib/runtime-config";
+import { discoverNextReelIdeaResearch, startReelIdeaResearch } from "../../../lib/reel-idea-research";
+import { ManusRequestError, manusConfigured } from "../../../lib/manus";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -29,7 +31,7 @@ export async function GET(request: Request) {
     }
     const ideas = await listReelIdeas(db, url.searchParams.get("includeArchived") === "true");
     const config = getAiConfig();
-    return Response.json({ ideas, aiConfigured: aiConfigured(config) }, { headers: noStoreHeaders() });
+    return Response.json({ ideas, aiConfigured: aiConfigured(config), manusConfigured: manusConfigured(getManusConfig()) }, { headers: noStoreHeaders() });
   } catch (error) {
     return reelIdeaError(error);
   }
@@ -43,6 +45,13 @@ export async function POST(request: Request) {
     const db = await getRuntimeDb();
     const config = getAiConfig();
     if (!aiConfigured(config)) return Response.json({ error: "A IA ainda não está configurada.", code: "ai_not_configured" }, { status: 503 });
+    const manus = getManusConfig();
+    if (manusConfigured(manus)) {
+      const researchJob = input.action === "discover"
+        ? await discoverNextReelIdeaResearch(db, manus)
+        : await startReelIdeaResearch(db, manus, input.newsId, input.origin);
+      return Response.json({ researchJob }, { status: 202 });
+    }
     const idea = input.action === "discover"
       ? await discoverNextReelIdea(db, config)
       : await generateReelIdea(db, config, input.newsId, input.origin);
@@ -86,8 +95,15 @@ function reelIdeaError(error: unknown) {
       code: "ai_provider_error",
     }, { status: error.httpStatus === 429 ? 503 : 502 });
   }
+  if (error instanceof ManusRequestError) {
+    console.error("[reel-ideas-manus]", JSON.stringify({ status: error.status, message: error.message, details: error.details }));
+    return Response.json({
+      error: "O Manus não conseguiu iniciar a pesquisa agora. Nenhuma ideia parcial foi salva.",
+      code: "manus_provider_error",
+    }, { status: error.status === 429 ? 503 : 502 });
+  }
   const message = safeError(error);
-  const schemaPending = /relation\s+["']?(?:reel_ideas|reel_idea_sources)["']?\s+does not exist|undefined_table/i.test(message);
+  const schemaPending = /relation\s+["']?(?:reel_ideas|reel_idea_sources|reel_idea_research_jobs)["']?\s+does not exist|undefined_table/i.test(message);
   console.error("[reel-ideas]", message);
   return Response.json({
     error: schemaPending ? "A migration aditiva do módulo Ideias para Reels ainda não foi aplicada." : message,

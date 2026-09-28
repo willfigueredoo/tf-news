@@ -5,6 +5,8 @@ import { buildEditorialIntelligence, type EditorialDecision, type IntelligenceNe
 import { loadIntelligenceNews } from "./intelligence-news.ts";
 import { acquireJobLock, releaseJobLock } from "./jobs.ts";
 import { buildReelIdeaRelevance, generateReelIdea } from "./reel-ideas.ts";
+import { manusConfigured, type ManusConfig } from "./manus.ts";
+import { startReelIdeaResearch } from "./reel-idea-research.ts";
 
 export type ReelIdeaAutomationConfig = {
   dailyLimit: number;
@@ -73,7 +75,7 @@ export async function runReelIdeaAutomation(
   ai: AiConfig,
   automation: ReelIdeaAutomationConfig,
   mode: "news" | "evergreen",
-  options: { now?: Date; fetchImpl?: typeof fetch } = {},
+  options: { now?: Date; fetchImpl?: typeof fetch; manus?: ManusConfig } = {},
 ) {
   if (!aiConfigured(ai)) throw new Error("A IA não está configurada para alimentar o Banco de Ideias.");
   const lockName = `reel-ideas:${mode}`;
@@ -88,16 +90,35 @@ export async function runReelIdeaAutomation(
         SELECT relation.news_item_id, news.title
         FROM reel_idea_sources relation
         JOIN news_items news ON news.id = relation.news_item_id
+        UNION
+        SELECT job.news_item_id, news.title
+        FROM reel_idea_research_jobs job
+        JOIN news_items news ON news.id = job.news_item_id
+        WHERE job.status IN ('submitting', 'researching', 'ready', 'generating', 'waiting')
       `).all<ExistingSource>(),
     ]);
     const existing = existingResult.results;
 
     if (mode === "evergreen") {
       const weekStart = saoPauloWeekStart(now).toISOString();
-      const createdThisWeek = await countIdeas(db, "evergreen", weekStart, now.toISOString());
+      const createdThisWeek = options.manus && manusConfigured(options.manus)
+        ? await countResearchJobs(db, "evergreen", weekStart, now.toISOString())
+        : await countIdeas(db, "evergreen", weekStart, now.toISOString());
       if (createdThisWeek > 0) return await logSkipped(db, mode, startedAt, now, "weekly_limit", { createdThisWeek });
       const candidate = selectEvergreenCandidate(news, existing, { now, minimumRelevance: automation.minimumRelevance });
       if (!candidate) return await logSkipped(db, mode, startedAt, now, "no_eligible_candidate", { maximumAgeDays: 90 });
+      if (options.manus && manusConfigured(options.manus)) {
+        const researchJob = await startReelIdeaResearch(db, options.manus, candidate.decision.id, "automatic", {
+          fetchImpl: options.fetchImpl,
+          contentType: "evergreen",
+          automatic: true,
+          selectionWindowDays: null,
+          relatedNews: candidate.related,
+          now,
+        });
+        await logResearchStarted(db, mode, startedAt, researchJob);
+        return { status: "researching", mode, created: false, researchJob } as const;
+      }
       const idea = await generateReelIdea(db, ai, candidate.decision.id, "automatic", {
         fetchImpl: options.fetchImpl,
         contentType: "evergreen",
@@ -112,11 +133,17 @@ export async function runReelIdeaAutomation(
     }
 
     const { start, end } = saoPauloDayBounds(now);
-    const daily = await db.prepare(`
-      SELECT COUNT(*)::integer AS count, COALESCE(MAX(selection_window_days), 0)::integer AS window_days
-      FROM reel_ideas
-      WHERE automatic = TRUE AND content_type = 'news' AND created_at >= ? AND created_at < ?
-    `).bind(start.toISOString(), end.toISOString()).first<{ count: number; window_days: number }>();
+    const daily = options.manus && manusConfigured(options.manus)
+      ? await db.prepare(`
+          SELECT COUNT(*)::integer AS count, COALESCE(MAX(selection_window_days), 0)::integer AS window_days
+          FROM reel_idea_research_jobs
+          WHERE automatic = TRUE AND content_type = 'news' AND created_at >= ? AND created_at < ?
+        `).bind(start.toISOString(), end.toISOString()).first<{ count: number; window_days: number }>()
+      : await db.prepare(`
+          SELECT COUNT(*)::integer AS count, COALESCE(MAX(selection_window_days), 0)::integer AS window_days
+          FROM reel_ideas
+          WHERE automatic = TRUE AND content_type = 'news' AND created_at >= ? AND created_at < ?
+        `).bind(start.toISOString(), end.toISOString()).first<{ count: number; window_days: number }>();
     const createdToday = Number(daily?.count ?? 0);
     if (createdToday >= automation.dailyLimit) {
       return await logSkipped(db, mode, startedAt, now, "daily_limit", { createdToday, dailyLimit: automation.dailyLimit });
@@ -134,6 +161,17 @@ export async function runReelIdeaAutomation(
       fallbackWindowDays: automation.fallbackWindowDays,
       fallbackAllowed: createdToday === 0 || activeWindow === automation.fallbackWindowDays,
     });
+    if (options.manus && manusConfigured(options.manus)) {
+      const researchJob = await startReelIdeaResearch(db, options.manus, candidate.decision.id, "automatic", {
+        fetchImpl: options.fetchImpl,
+        contentType: "news",
+        automatic: true,
+        selectionWindowDays: candidate.windowDays,
+        now,
+      });
+      await logResearchStarted(db, mode, startedAt, researchJob, { fallback: candidate.fallback, windowDays: candidate.windowDays });
+      return { status: "researching", mode, created: false, fallback: candidate.fallback, windowDays: candidate.windowDays, researchJob } as const;
+    }
     const idea = await generateReelIdea(db, ai, candidate.decision.id, "automatic", {
       fetchImpl: options.fetchImpl,
       contentType: "news",
@@ -211,6 +249,14 @@ async function countIdeas(db: Database, contentType: string, start: string, end:
   return Number(row?.count ?? 0);
 }
 
+async function countResearchJobs(db: Database, contentType: string, start: string, end: string) {
+  const row = await db.prepare(`
+    SELECT COUNT(*)::integer AS count FROM reel_idea_research_jobs
+    WHERE automatic = TRUE AND content_type = ? AND created_at >= ? AND created_at < ?
+  `).bind(contentType, start, end).first<{ count: number }>();
+  return Number(row?.count ?? 0);
+}
+
 async function logSkipped(db: Database, mode: string, startedAt: string, now: Date, reason: string, metadata: Record<string, unknown>) {
   await db.prepare(`
     INSERT INTO job_logs (job_type, status, started_at, finished_at, processed_items, metadata)
@@ -224,6 +270,13 @@ async function logSuccess(db: Database, mode: string, startedAt: string, now: Da
     INSERT INTO job_logs (job_type, status, started_at, finished_at, processed_items, metadata)
     VALUES (?, 'success', ?, ?, 1, ?)
   `).bind(`reel-ideas-${mode}`, startedAt, new Date().toISOString(), JSON.stringify({ mode, automatic: true, ideaId: idea.id, relevanceScore: idea.relevanceScore, ...metadata })).run();
+}
+
+async function logResearchStarted(db: Database, mode: string, startedAt: string, researchJob: Record<string, unknown>, metadata: Record<string, unknown> = {}) {
+  await db.prepare(`
+    INSERT INTO job_logs (job_type, status, started_at, finished_at, processed_items, metadata)
+    VALUES (?, 'success', ?, ?, 0, ?)
+  `).bind(`reel-ideas-${mode}`, startedAt, new Date().toISOString(), JSON.stringify({ mode, automatic: true, researchJobId: researchJob.id, stage: "manus_research", ...metadata })).run();
 }
 
 function safeError(error: unknown) {
