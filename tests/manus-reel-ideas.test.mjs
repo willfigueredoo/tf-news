@@ -96,12 +96,13 @@ test("migration Manus é estritamente aditiva e preserva notícia e ideia", asyn
 });
 
 test("integração mantém Gemini como editor final e o frontend não aguarda a pesquisa", async () => {
-  const [research, ideas, route, webhook, component] = await Promise.all([
+  const [research, ideas, route, webhook, component, vercel] = await Promise.all([
     readFile(new URL("../lib/reel-idea-research.ts", import.meta.url), "utf8"),
     readFile(new URL("../lib/reel-ideas.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/api/reel-ideas/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/api/webhooks/manus/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/reel-ideas.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../vercel.json", import.meta.url), "utf8"),
   ]);
   assert.match(research, /generateReelIdea/);
   assert.match(ideas, /runStructuredAi/);
@@ -110,5 +111,8 @@ test("integração mantém Gemini como editor final e o frontend não aguarda a 
   assert.match(webhook, /verifyManusWebhook/);
   assert.doesNotMatch(webhook, /generateReelIdea|runStructuredAi/);
   assert.match(component, /setInterval/);
+  assert.match(component, /finalizingResearch/);
   assert.match(component, /Você pode continuar usando o TF News/);
+  assert.equal((vercel.match(/api\/cron\/manus-reel-ideas\?slot=/g) ?? []).length, 4);
+  assert.doesNotMatch(vercel, /\*\/10/);
 });

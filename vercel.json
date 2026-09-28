@@ -34,8 +34,20 @@
       "schedule": "45 12 * * 1"
     },
     {
-      "path": "/api/cron/manus-reel-ideas",
-      "schedule": "*/10 * * * *"
+      "path": "/api/cron/manus-reel-ideas?slot=morning",
+      "schedule": "50 11 * * *"
+    },
+    {
+      "path": "/api/cron/manus-reel-ideas?slot=midday",
+      "schedule": "0 15 * * *"
+    },
+    {
+      "path": "/api/cron/manus-reel-ideas?slot=afternoon",
+      "schedule": "0 19 * * *"
+    },
+    {
+      "path": "/api/cron/manus-reel-ideas?slot=evergreen",
+      "schedule": "15 13 * * 1"
     }
   ]
 }

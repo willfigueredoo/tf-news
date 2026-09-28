@@ -156,19 +156,21 @@ export async function ingestManusWebhook(db: Database, payload: Record<string, u
 export async function processNextReadyResearchJob(
   db: Database,
   ai: AiConfig,
-  options: { fetchImpl?: typeof fetch } = {},
+  options: { fetchImpl?: typeof fetch; jobId?: number } = {},
 ) {
   const now = new Date();
   const staleBefore = new Date(now.getTime() - 15 * 60_000).toISOString();
+  const requestedJob = options.jobId ?? null;
   const claimed = await db.prepare(`
     UPDATE reel_idea_research_jobs SET status = 'generating', attempts = attempts + 1, updated_at = ?
     WHERE id = (
       SELECT id FROM reel_idea_research_jobs
-      WHERE status = 'ready' OR (status = 'generating' AND updated_at < ?)
+      WHERE (CAST(? AS integer) IS NULL OR id = CAST(? AS integer))
+        AND (status = 'ready' OR (status = 'generating' AND updated_at < ?))
       ORDER BY CASE WHEN status = 'ready' THEN 0 ELSE 1 END, updated_at, id LIMIT 1
     ) AND (status = 'ready' OR (status = 'generating' AND updated_at < ?))
     RETURNING *
-  `).bind(now.toISOString(), staleBefore, staleBefore).first<ResearchJobRow>();
+  `).bind(now.toISOString(), requestedJob, requestedJob, staleBefore, staleBefore).first<ResearchJobRow>();
   if (!claimed) return { status: "idle", processed: false } as const;
   try {
     const research = manusResearchSchema.parse(JSON.parse(claimed.research_payload ?? "null"));

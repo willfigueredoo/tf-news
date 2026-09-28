@@ -8,10 +8,10 @@ O Manus atua como camada opcional de pesquisa factual. O Gemini continua sendo o
 2. Cria um registro em `reel_idea_research_jobs`.
 3. A Manus API v2 recebe uma tarefa privada e assíncrona com structured output.
 4. O webhook `/api/webhooks/manus` valida assinatura RSA-SHA256 e persiste o levantamento completo.
-5. O cron `/api/cron/manus-reel-ideas` entrega a pesquisa validada ao gerador Gemini existente.
+5. A interface ou os workers diários `/api/cron/manus-reel-ideas` entregam a pesquisa validada ao gerador Gemini existente.
 6. A ideia e suas fontes são persistidas atomicamente; o job passa para `completed`.
 
-O webhook não chama o Gemini, para responder rapidamente. O frontend acompanha o job sem bloquear a navegação. Uma interrupção antes do Gemini não cria conteúdo parcial.
+O webhook não chama o Gemini, para responder rapidamente. O frontend acompanha o job e dispara a finalização em segundo plano sem bloquear a navegação. As automações usam workers diários compatíveis com o plano atual da Vercel. Uma interrupção antes do Gemini não cria conteúdo parcial.
 
 ## Variáveis na Vercel
 

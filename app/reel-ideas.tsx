@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useEscapeKey } from "../lib/use-escape-key";
 
 type ReelIdeaStatus = "new" | "scripting" | "review" | "approved" | "recorded" | "archived";
@@ -93,6 +93,7 @@ export function ReelIdeas({ initialIdeaId = null, initialResearchJobId = null, o
   const [error, setError] = useState<string | null>(null);
   const [aiConfigured, setAiConfigured] = useState(false);
   const [researchJobId, setResearchJobId] = useState<number | null>(initialResearchJobId);
+  const finalizingResearch = useRef(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -123,6 +124,14 @@ export function ReelIdeas({ initialIdeaId = null, initialResearchJobId = null, o
         const data = await response.json() as { researchJob?: ReelIdeaResearchJob; error?: string };
         if (!response.ok || !data.researchJob) throw new Error(data.error ?? "Não foi possível acompanhar a pesquisa.");
         const job = data.researchJob;
+        if (job.status === "ready" && !finalizingResearch.current) {
+          finalizingResearch.current = true;
+          void fetch("/api/reel-idea-research", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id: job.id }),
+          }).finally(() => { finalizingResearch.current = false; });
+        }
         if (job.status === "completed" && job.ideaId) {
           if (stopped) return;
           setResearchJobId(null);
